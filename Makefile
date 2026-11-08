@@ -5,6 +5,8 @@ POKER_SRC = src/poker/poker.c src/poker/apostas.c
 POKER_HEADERS = src/poker/poker.h src/poker/apostas.h
 JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c
 JOGO_HEADERS = src/core/jogo.h src/ui/interface.h
+TORNEIO_SRC = src/core/torneio.c
+TORNEIO_HEADERS = src/core/torneio.h
 RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib)
 RAYLIB_LIBS = $(shell pkg-config --libs raylib)
 
@@ -17,8 +19,12 @@ build:
 build/test_poker: tests/test_poker.c $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/test_poker.c $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker
+build/test_torneio: tests/test_torneio.c $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_torneio.c $(TORNEIO_SRC) $(POKER_SRC) $(LDLIBS) -o $@
+
+test: build/test_poker build/test_torneio
 	./build/test_poker
+	./build/test_torneio
 
 build/console_demo: examples/console_demo.c $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) examples/console_demo.c $(POKER_SRC) $(LDLIBS) -o $@

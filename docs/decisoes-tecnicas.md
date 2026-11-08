@@ -87,6 +87,23 @@ Quem chama o quê, em ordem:
 - O jogador começa com 2.000 fichas e **leva o saldo acumulado** para a etapa seguinte. Exemplo do conceito: vencer o primeiro sem gastar nada em trapaças chega ao segundo com 4.000; gastando 600, chega com 3.400.
 - Os blinds sobem a cada determinado número de mãos, para evitar partidas intermináveis. **Ao iniciar um novo confronto, os blinds reiniciam** em valores adequados à etapa.
 
+**[Decidido]** A lógica do torneio está em `src/core/torneio.c` (sem Raylib), com testes em `tests/test_torneio.c`:
+
+- `Torneio` guarda o confronto atual (0 a 2), as fichas de cada lado, as mãos jogadas, o dealer, as recuperações usadas e a situação (`EM_ANDAMENTO`, `CONFRONTO_VENCIDO`, `JOGADOR_FALIDO`, `CAMPEAO`).
+- O assento 0 é sempre o jogador e o 1 é o adversário, como o motor espera. O dealer alterna a cada mão; no primeiro confronto e a cada confronto novo, o jogador começa como dealer.
+- Depois de `poker_settle`, o core chama `torneio_registrar_mao` com as fichas finais dos dois assentos. O torneio **recusa** o registro se alguém ficar negativo, se os dois zerarem ou se a soma das fichas **aumentar**: fichas só saem de circulação (custos de trapaça), nunca surgem.
+- Ao zerar o adversário, a situação vira `CONFRONTO_VENCIDO` (ou `CAMPEAO` no último) e o jogo chama `torneio_avancar_confronto`: o jogador leva o saldo, o adversário entra com as fichas do seu confronto e os blinds reiniciam.
+- Ao zerar o jogador, a situação vira `JOGADOR_FALIDO`. A roleta (do Gabriel) decide o que acontece; se ele sobreviver, o core chama `torneio_recuperar_jogador`: o jogador volta com **metade das fichas iniciais do adversário daquela etapa** (2.000 no confronto de 4.000), o adversário mantém suas fichas e o nível dos blinds não muda. O contador `recuperacoes` existe para o Gabriel aplicar o limite de recuperações.
+
+**[Proposta]** Valores escolhidos só para ter o que testar; o grupo ajusta jogando (pendência 11). Ficam em `src/core/torneio.h` e `src/core/torneio.c`:
+
+| Valor | Hoje |
+| --- | --- |
+| Big blind inicial (confrontos 1, 2 e 3) | 20, 40 e 80 (small blind = metade) |
+| Mãos por nível de blind | 5 (`TORNEIO_MAOS_POR_NIVEL`) |
+| Fator de aumento do blind | x2 (`TORNEIO_FATOR_BLIND`) |
+| Teto do big blind | 1.000.000 (`TORNEIO_BLIND_MAXIMO`), só para evitar estouro |
+
 ### Adversários e IA
 
 | Perfil | Estilo | Quando embriagado |
@@ -198,7 +215,7 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 
 | Pessoa | Área | Já feito | Próximos passos | Depende de |
 | --- | --- | --- | --- | --- |
-| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3) | Torneio (3 confrontos, saldo, blinds, falência); loop da mão (seção 3.1); definir os eventos para a UI; integrar IA, trapaças e UI; atualizar o README; revisar e mesclar os PRs | Merge do PR #2 (baralho) |
+| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes | Loop da mão (seção 3.1), usando o torneio; definir os eventos para a UI; integrar IA, trapaças e UI; atualizar o README; revisar e mesclar os PRs | Merge do PR #2 (baralho) |
 | **Júlia** | Motor de pôquer (`src/poker`) | Avaliação, apostas e pote com testes; correções do review aplicadas (PR #1, já na `develop`) | Deixar o contrato do motor escrito em `poker.h` (mão que volta em showdown, `value[]` só com showdown, board completo no settle); decidir com o Gabriel os custos no meio da mão (5.2); newline final nos arquivos | Decisões do Gabriel sobre custos |
 | **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/adversarios.*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, aberto) | Rebase do PR #2 sobre a `develop` (ver seção 8); operações novas do baralho para as trapaças (5.3); os 3 perfis de IA sobre um motor único; Insertion Sort das mãos (pendência 5) | Decisões do Gabriel sobre trapaças |
 | **Gabriel** | Mecânicas (`src/gameplay/trapacas.*`, `probabilidade.*`, `progressao.*`) | Lista de mecânicas com proposta de implementação | Fechar as pendências 1, 2 e 10; implementar trapaças, chance de descoberta e suspeita individual; roleta russa e balas | Loop da mão do Arthur; baralho; motor |
