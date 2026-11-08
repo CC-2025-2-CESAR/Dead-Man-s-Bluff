@@ -2,7 +2,7 @@
 
 Roguelike de pôquer desenvolvido em C com Raylib para a disciplina de Algoritmos e Estruturas de Dados (AED).
 
-> **Estado atual:** motor de pôquer heads-up implementado, com testes de console e demonstração Raylib. O jogo completo ainda está em desenvolvimento.
+> **Estado atual:** motor de pôquer heads-up implementado, com testes de console e demonstração Raylib, e tela inicial do jogo com o loop principal. A partida completa ainda está em desenvolvimento.
 
 ## Sobre o jogo
 
@@ -69,13 +69,14 @@ Dead-Man-s-Bluff/
 | `src/ui/` | Telas, menus, renderização e animações |
 | `assets/` | Imagens, sons e fontes |
 
-O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. Os demais módulos ainda contêm comentários `TODO`.
+O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. O loop principal e os estados do jogo estão em `src/core/jogo.c`, e a tela inicial, em `src/ui/interface.c`. Os demais módulos ainda contêm comentários `TODO`.
 
 ## Estado atual
 
 - [x] Planejamento do projeto e divisão de responsabilidades.
 - [x] Estruturação inicial do repositório.
 - [x] Motor de pôquer heads-up e demonstrações.
+- [x] Tela inicial (Jogar/Sair) e loop principal com Raylib.
 - [ ] Implementação dos demais módulos.
 - [ ] Integração e testes.
 
@@ -134,6 +135,19 @@ make raylib-demo RAYLIB_CFLAGS="-IC:/raylib/include" RAYLIB_LIBS="-LC:/raylib/li
 ```
 
 Controles: **C** passa/paga, **B** aposta/aumenta pelo mínimo, **A** faz all-in, **F** desiste e **N** avança a etapa ou paga o pote. A demonstração controla os dois jogadores e usa cartas fixas, sem IA nem embaralhamento. No pré-flop, use B e C; depois alterne N e dois C até o showdown. O último N paga o pote, com saldos de `2200 / 1800`.
+
+### Jogo
+
+Com Raylib instalada:
+
+```sh
+make jogo
+./build/dead_mans_bluff
+```
+
+Abre a tela inicial: **W/S** ou as setas navegam e **ENTER** ou **ESPAÇO** confirmam. **Jogar** leva a uma tela provisória da mesa, e **ESC** volta ao menu. **Sair**, ou fechar a janela, encerra o jogo. A partida ainda não está ligada a essa tela.
+
+No MSYS2 UCRT64, use `mingw32-make jogo` e mantenha `C:\msys64\ucrt64\bin` no `PATH`, pois o executável usa a `libraylib.dll` e a `glfw3.dll` dessa pasta.
 
 ### Integração em C11
 

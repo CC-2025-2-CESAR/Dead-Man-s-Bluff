@@ -3,10 +3,12 @@ CPPFLAGS += -Isrc/poker
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -Werror
 POKER_SRC = src/poker/poker.c src/poker/apostas.c
 POKER_HEADERS = src/poker/poker.h src/poker/apostas.h
+JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c
+JOGO_HEADERS = src/core/jogo.h src/ui/interface.h
 RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib)
 RAYLIB_LIBS = $(shell pkg-config --libs raylib)
 
-.PHONY: all test console-demo raylib-demo clean
+.PHONY: all test console-demo raylib-demo jogo clean
 all: test console-demo
 
 build:
@@ -27,6 +29,11 @@ build/raylib_demo: examples/raylib_demo.c $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(RAYLIB_CFLAGS) $(LDFLAGS) examples/raylib_demo.c $(POKER_SRC) $(RAYLIB_LIBS) $(LDLIBS) -o $@
 
 raylib-demo: build/raylib_demo
+
+build/dead_mans_bluff: $(JOGO_SRC) $(JOGO_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(RAYLIB_CFLAGS) $(LDFLAGS) $(JOGO_SRC) $(RAYLIB_LIBS) $(LDLIBS) -o $@
+
+jogo: build/dead_mans_bluff
 
 clean:
 	rm -rf build
