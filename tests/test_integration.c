@@ -106,7 +106,7 @@ static void run_hand(int dealer, int print_first)
 
     complete_betting_round(&table);
     assert(table.phase == POKER_SHOWDOWN);
-    assert(poker_settle(&table, (const PokerCard (*)[2])hole, board, &result) == POKER_OK);
+    assert(poker_settle(&table, hole[0], hole[1], board, &result) == POKER_OK);
     assert(result.winners == expected_winners);
     assert(result.showdown);
     assert(poker_compare(&result.value[0], &direct[0]) == 0);

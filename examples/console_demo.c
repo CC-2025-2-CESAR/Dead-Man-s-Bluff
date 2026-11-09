@@ -71,7 +71,7 @@ int main(void)
     PokerResult result;
 
     check_error(
-        poker_settle(&table, hole, board, &result)
+        poker_settle(&table, hole[0], hole[1], board, &result)
     );
 
     printf("Pote: %" PRId64 "\n", result.pot);

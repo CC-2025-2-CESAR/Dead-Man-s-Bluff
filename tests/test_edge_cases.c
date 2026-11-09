@@ -68,7 +68,7 @@ static void test_fold_without_board(void)
     PokerAction fold = {POKER_FOLD, 0};
     assert(poker_act(&table, table.actor, fold) == POKER_OK);
     assert(table.phase == POKER_UNCONTESTED);
-    assert(poker_settle(&table, NULL, NULL, &result) == POKER_OK);
+    assert(poker_settle(&table, NULL, NULL, NULL, &result) == POKER_OK);
     assert(result.winners == 2);
     assert(!result.showdown);
     assert(table.player[0].chips + table.player[1].chips == 1000);
@@ -97,7 +97,7 @@ static void test_all_in_runout(void)
     assert(deck_deal_board(&deck, POKER_TURN, board, &board_count));
     assert(deck_deal_board(&deck, POKER_RIVER, board, &board_count));
     assert(board_count == 5 && deck.count == 40);
-    assert(poker_settle(&table, (const PokerCard (*)[2])hole, board, &result) == POKER_OK);
+    assert(poker_settle(&table, hole[0], hole[1], board, &result) == POKER_OK);
     assert(result.pot == 20 && result.showdown);
     assert(table.player[0].chips + table.player[1].chips == 20);
     deck_free(&deck);

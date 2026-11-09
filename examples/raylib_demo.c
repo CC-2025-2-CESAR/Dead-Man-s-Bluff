@@ -82,7 +82,7 @@ int main(void)
             } else if (table.phase == POKER_SHOWDOWN ||
                        table.phase == POKER_UNCONTESTED) {
                 status = poker_settle(
-                    &table, hole, board, &result
+                    &table, hole[0], hole[1], board, &result
                 );
             }
         }
