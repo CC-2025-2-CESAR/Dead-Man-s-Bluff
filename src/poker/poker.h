@@ -67,6 +67,16 @@ typedef enum {
     POKER_RIVER
 } PokerStreet;
 
+/*
+ * Fases da mão:
+ *   POKER_ACTING          - rodada de apostas em andamento; age table->actor.
+ *   POKER_STREET_FINISHED - rodada encerrada; chame poker_next_street.
+ *   POKER_SHOWDOWN        - mão vai a showdown (inclui all-in, mesmo antes do
+ *                           river). Falta só poker_settle.
+ *   POKER_UNCONTESTED     - alguém desistiu. Falta só poker_settle, sem cartas.
+ *   POKER_SETTLED         - pote pago. Nova chamada a poker_settle é recusada.
+ */
+
 typedef enum {
     POKER_ACTING = 0,
     POKER_STREET_FINISHED,
@@ -177,7 +187,20 @@ int poker_compare(
 const char *poker_category_name(PokerCategory category);
 const char *poker_status_name(PokerStatus status);
 
-/* Inicializa a mão e desconta os blinds. */
+/*
+ * Inicializa a mão e desconta os blinds.
+ *
+ * ATENÇÃO: depois desta chamada, SEMPRE confira table->phase.
+ *   - Se algum stack for menor ou igual ao small blind, o jogador fica
+ *     all-in só com o blind e a mão já volta em POKER_SHOWDOWN, sem ação.
+ *   - Se um stack for maior que o small blind, mas menor ou igual ao big
+ *     blind, ele fica all-in no big blind, mas o oponente ainda pode ter que
+ *     agir (POKER_ACTING com table->actor definido).
+ *
+ * Stack 0 (ou negativo) devolve POKER_ERR_CHIPS. A falência deve ser tratada
+ * pelo chamador ANTES de iniciar uma nova mão.
+ */
+
 PokerStatus poker_start_hand(
     PokerTable *table,
     const PokerChips stacks[2],
@@ -211,11 +234,24 @@ PokerStatus poker_divide_pot(
 );
 
 /*
- * Em showdown: exige duas cartas por jogador e board completo.
- * Em vitória por fold: hole0, hole1 e board podem ser NULL.
+ * Paga o pote e atualiza os stacks. Só pode ser chamada em POKER_SHOWDOWN
+ * ou POKER_UNCONTESTED, uma única vez por mão (depois, POKER_ERR_STATE).
  *
- * Atualiza os stacks e impede pagamento duplicado.
+ * Showdown (out->showdown == true):
+ *   - hole0, hole1: duas cartas por jogador.
+ *   - board: SEMPRE as 5 cartas, mesmo que o all-in tenha acontecido antes
+ *     do river. Completar o board é responsabilidade de quem chama (core).
+ *   - Ponteiro NULL devolve POKER_ERR_ARGUMENT; carta repetida devolve
+ *     POKER_ERR_DUPLICATE_CARD.
+ *   - out->value[0] e out->value[1] são preenchidos.
+ *
+ * Vitória por fold (out->showdown == false):
+ *   - hole0, hole1 e board podem ser NULL.
+ *   - out->value[] NÃO deve ser lido.
+ *
+ * Se devolver erro, a mesa não é alterada e a chamada pode ser repetida.
  */
+
 PokerStatus poker_settle(
     PokerTable *table,
     const PokerCard hole0[2],
