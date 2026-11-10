@@ -161,4 +161,8 @@ extern const int poker_ai_monte_carlo_iterations;
  * Coloque 0.0 para desligar. Nao cria uma nova dimensao na tabela. */
 extern const double poker_ai_cheap_all_in_odds_max;
 
+/* BIG pode virar shove se stack/pote <= limite. Zero desliga por SPR;
+ * all-in curto continua disponivel quando nao ha raise convencional. */
+extern const double poker_ai_offensive_all_in_spr_max;
+
 #endif

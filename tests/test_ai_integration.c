@@ -146,11 +146,89 @@ static void check_cards_and_rng(void)
         assert(action.state == expected.state);
 }
 
+
+/* Forca BIG em cada cenario para testar all-in sem alterar a tabela base. */
+static void check_offensive_all_in(void)
+{
+    PokerAIScenarioTable forced;
+    memcpy(forced, poker_ai_scenario_table, sizeof forced);
+    for (int p = 0; p < POKER_AI_PROFILE_COUNT; ++p)
+        for (int s = 0; s < POKER_AI_STREET_COUNT; ++s)
+            for (int h = 0; h < POKER_AI_STRENGTH_COUNT; ++h)
+                for (int q = 0; q < POKER_AI_PRESSURE_COUNT; ++q) {
+                    PokerAIScenario *cell = &forced[p][s][h][q];
+                    cell->weight[0] = 0.0;
+                    cell->weight[1] = 0.0;
+                    cell->weight[2] = 0.0;
+                    cell->weight[3] = 100.0;
+                }
+
+    PokerAIRng action_rng, equity_rng;
+    poker_ai_rng_seed(&action_rng, 301);
+    poker_ai_rng_seed(&equity_rng, 302);
+    PokerAIContext ctx = {POKER_AI_AGGRESSIVE,
+                          (const PokerAIScenarioTable *)&forced,
+                          &action_rng, &equity_rng};
+    PokerCard hole[2] = {card(7, POKER_CLUBS), card(2, POKER_DIAMONDS)};
+    PokerAction act;
+    PokerAIDecisionInfo info;
+    PokerLegalActions legal;
+
+    /* Stack 55; call 50; raise minimo 60: all-in curto. */
+    PokerTable t = face_bet(100, 50, 55, POKER_PREFLOP);
+    assert(poker_legal_actions(&t, 1, &legal) == POKER_OK);
+    assert(!legal.raise && legal.all_in && legal.max_total > t.current_bet);
+    assert(poker_ai_choose_action(&t, 1, hole, NULL, 0,
+                                  &ctx, &info, &act) == POKER_OK);
+    assert(info.chosen_slot == POKER_AI_ACTION_RAISE_BIG);
+    assert(act.type == POKER_ALL_IN && act.total == 0);
+    assert(poker_act(&t, 1, act) == POKER_OK);
+    assert(t.player[1].chips == 0 && t.current_bet == 55);
+
+    /* Raise legal, mas SPR baixo: BIG vira all-in deliberado. */
+    t = face_bet(100, 50, 80, POKER_PREFLOP);
+    assert(poker_legal_actions(&t, 1, &legal) == POKER_OK && legal.raise);
+    assert(poker_ai_choose_action(&t, 1, hole, NULL, 0,
+                                  &ctx, &info, &act) == POKER_OK);
+    assert(act.type == POKER_ALL_IN && act.total == 0);
+    assert(poker_act(&t, 1, act) == POKER_OK);
+    assert(t.player[1].chips == 0 && t.current_bet == 80);
+
+    /* Stack profundo: BIG continua sendo RAISE convencional. */
+    t = face_bet(100, 50, 1000, POKER_PREFLOP);
+    assert(poker_ai_choose_action(&t, 1, hole, NULL, 0,
+                                  &ctx, &info, &act) == POKER_OK);
+    assert(act.type == POKER_RAISE);
+    assert(poker_act(&t, 1, act) == POKER_OK);
+
+    /* Stack insuficiente para call: continua CALL, nunca shove ofensivo. */
+    t = face_bet(100, 100, 5, POKER_PREFLOP);
+    assert(poker_legal_actions(&t, 1, &legal) == POKER_OK);
+    assert(legal.all_in && legal.max_total <= t.current_bet);
+    assert(poker_ai_choose_action(&t, 1, hole, NULL, 0,
+                                  &ctx, &info, &act) == POKER_OK);
+    assert(act.type == POKER_CALL);
+    assert(poker_act(&t, 1, act) == POKER_OK);
+
+    /* Abrir aposta com menos do que o minimo: so ALL_IN. */
+    t = face_bet(100, 0, 5, POKER_FLOP);
+    PokerCard board[3] = {card(3, POKER_HEARTS),
+                          card(9, POKER_SPADES),
+                          card(13, POKER_DIAMONDS)};
+    assert(poker_legal_actions(&t, 1, &legal) == POKER_OK);
+    assert(!legal.bet && legal.all_in);
+    assert(poker_ai_choose_action(&t, 1, hole, board, 3,
+                                  &ctx, &info, &act) == POKER_OK);
+    assert(act.type == POKER_ALL_IN && act.total == 0);
+    assert(poker_act(&t, 1, act) == POKER_OK);
+}
+
 int main(void)
 {
+    check_offensive_all_in();
     check_capped_cheap_call();
     check_uncapped_and_free();
     check_cards_and_rng();
-    puts("Regressoes: short stack, pot odds, FREE, RNG e cartas OK.");
+    puts("Regressoes: all-in ofensivo, short stack, pot odds, FREE, RNG e cartas OK.");
     return 0;
 }

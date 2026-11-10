@@ -79,6 +79,9 @@ const int poker_ai_monte_carlo_iterations = 400;
  * desligar. O override fica visivel em PokerAIDecisionInfo. */
 const double poker_ai_cheap_all_in_odds_max = 0.03;
 
+/* BIG vira shove se stack/pote <= 1.0; zero desliga conversao por SPR. */
+const double poker_ai_offensive_all_in_spr_max = 1.0;
+
 /* ===================================================================
  * Tabela de cenarios da IA -- VALORES INICIAIS EXPERIMENTAIS.
  *

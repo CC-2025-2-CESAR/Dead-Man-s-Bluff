@@ -505,6 +505,7 @@ static void build_effective_weights(
     const PokerAIScenario *scenario,
     const PokerLegalActions *legal,
     bool current_bet_zero,
+    bool offensive_all_in_legal,
     double effective[POKER_AI_ACTION_SLOT_COUNT],
     bool legal_slot[POKER_AI_ACTION_SLOT_COUNT])
 {
@@ -513,7 +514,8 @@ static void build_effective_weights(
     legal_slot[POKER_AI_ACTION_FOLD] = legal->fold && !legal->check;
     legal_slot[POKER_AI_ACTION_PASSIVE] = legal->check || legal->call;
     legal_slot[POKER_AI_ACTION_RAISE] = can_raise;
-    legal_slot[POKER_AI_ACTION_RAISE_BIG] = can_raise;
+    /* Permite all-in ofensivo curto mesmo sem raise minimo convencional. */
+    legal_slot[POKER_AI_ACTION_RAISE_BIG] = can_raise || offensive_all_in_legal;
 
     for (int i = 0; i < POKER_AI_ACTION_SLOT_COUNT; ++i)
         effective[i] = legal_slot[i] ? scenario->weight[i] : 0.0;
@@ -656,6 +658,8 @@ PokerStatus poker_ai_choose_action(
         !isfinite(poker_ai_cheap_all_in_odds_max) ||
         poker_ai_cheap_all_in_odds_max < 0.0 ||
         poker_ai_cheap_all_in_odds_max > 1.0 ||
+        !isfinite(poker_ai_offensive_all_in_spr_max) ||
+        poker_ai_offensive_all_in_spr_max < 0.0 ||
         poker_ai_monte_carlo_iterations <= 0)
         return POKER_ERR_ARGUMENT;
     for (int kind = 0; kind < POKER_AI_BET_KIND_COUNT; ++kind) {
@@ -753,9 +757,13 @@ PokerStatus poker_ai_choose_action(
         return POKER_ERR_ARGUMENT;
 
     bool current_bet_zero = table->current_bet == 0;
+    bool conventional_raise_legal = current_bet_zero ? legal.bet : legal.raise;
+    /* Call all-in defensivo nao supera o valor da aposta atual. */
+    bool offensive_all_in_legal = legal.all_in && legal.max_total > table->current_bet;
     double effective[POKER_AI_ACTION_SLOT_COUNT];
     bool legal_slot[POKER_AI_ACTION_SLOT_COUNT];
-    build_effective_weights(scenario, &legal, current_bet_zero, effective, legal_slot);
+    build_effective_weights(scenario, &legal, current_bet_zero,
+                            offensive_all_in_legal, effective, legal_slot);
 
     bool cheap_all_in_override = false;
     if (capped_all_in_call && legal.call &&
@@ -797,9 +805,18 @@ PokerStatus poker_ai_choose_action(
         break;
     case POKER_AI_ACTION_RAISE_BIG:
     default:
-        action.type = current_bet_zero ? POKER_BET : POKER_RAISE;
-        action.total = choose_bet_total(style, POKER_AI_BET_BIG, current_bet_zero,
-                                         table, &legal, action_rng);
+        /* Os pesos de BIG continuam por personalidade. Com raise curto
+         * permitido, BIG pode virar all-in; com SPR baixo, vira shove. */
+        if (offensive_all_in_legal &&
+            (!conventional_raise_legal ||
+             (spr >= 0.0 && spr <= poker_ai_offensive_all_in_spr_max))) {
+            action.type = POKER_ALL_IN;
+            action.total = 0;
+        } else {
+            action.type = current_bet_zero ? POKER_BET : POKER_RAISE;
+            action.total = choose_bet_total(style, POKER_AI_BET_BIG, current_bet_zero,
+                                             table, &legal, action_rng);
+        }
         break;
     }
 

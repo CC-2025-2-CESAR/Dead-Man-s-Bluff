@@ -32,6 +32,12 @@ Quando `call_cost < to_call` (call capado pelo stack), classificamos a pressao u
 
 A regra especial esta visivel em `poker_ai_cheap_all_in_odds_max` (padrao **0.03**). Se o call e capado e custa no maximo 3% do pote disputavel, o peso `FOLD` e transferido para `CALL`. No pos-flop isso so ocorre se a equity estimada e pelo menos igual as pot odds. `info.cheap_all_in_override` informa a aplicacao. Coloque `0.0` para desligar. **Isso e uma excecao declarada e nao um novo cenario oculto.**
 
+## All-in ofensivo, sem novas celulas
+
+O slot `RAISE_BIG` agora tambem pode produzir `POKER_ALL_IN` com `total=0`. Se o motor permitir aumento ofensivo, mas nao um BET/RAISE minimo, o peso do slot BIG fica disponivel para um all-in curto. Quando o aumento convencional e legal, BIG se torna um shove deliberado apenas com `stack / pote_antes <= poker_ai_offensive_all_in_spr_max`, configurado em `1.0` por padrao. Zero desliga essa conversao por SPR, mas nao bloqueia all-in curto. Calls all-in defensivos permanecem `POKER_CALL`.
+
+Os pesos continuam sendo os definidos pelas 240 celulas, com probabilidades diferentes por personalidade. O controlador continua responsavel por aplicar a acao via `poker_act`.
+
 ## API por parametro
 
 `PokerAIContext` reside em `poker_ai_config.h` e tem `style`, `table` (pode ser `NULL` para usar `poker_ai_scenario_table`) e dois RNGs separados (`action_rng`, `equity_rng`). O core cria e inicializa ambos com `poker_ai_rng_seed`, preserva os estados entre turnos e passa o endereco do contexto. No pos-flop os RNGs devem ser objetos diferentes. Nao existe tabela global mutavel nem alteracao de `PokerTable` pela IA.
@@ -74,4 +80,4 @@ cc -std=c11 -Wall -Wextra -Wpedantic -Werror -Isrc/poker -Isrc/gameplay \
 ./test_tabelas_config
 ```
 
-`make test` nao foi alterado: o Arthur pode integrar os testes posteriormente. A UI, torneio, trapaças, embriaguez e aprendizagem ficam fora deste commit. Monte Carlo usa 400 iteracoes contra mao aleatoria; nao conhece o range do adversario.
+`make test-ai` executa as quatro suites da IA; `make test` tambem inclui o motor e o torneio. A UI, torneio, trapaças, embriaguez e aprendizagem ficam fora deste commit. Monte Carlo usa 400 iteracoes contra mao aleatoria; nao conhece o range do adversario.
