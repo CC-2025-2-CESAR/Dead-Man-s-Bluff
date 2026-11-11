@@ -215,24 +215,23 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 
 | Pessoa | Área | Já feito | Próximos passos | Depende de |
 | --- | --- | --- | --- | --- |
-| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes | Loop da mão (seção 3.1), usando o torneio; definir os eventos para a UI; integrar IA, trapaças e UI; atualizar o README; revisar e mesclar os PRs | Merge do PR #2 (baralho) |
-| **Júlia** | Motor de pôquer (`src/poker`) | Avaliação, apostas e pote com testes; correções do review aplicadas (PR #1, já na `develop`) | Deixar o contrato do motor escrito em `poker.h` (mão que volta em showdown, `value[]` só com showdown, board completo no settle); decidir com o Gabriel os custos no meio da mão (5.2); newline final nos arquivos | Decisões do Gabriel sobre custos |
-| **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/adversarios.*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, aberto) | Rebase do PR #2 sobre a `develop` (ver seção 8); operações novas do baralho para as trapaças (5.3); os 3 perfis de IA sobre um motor único; Insertion Sort das mãos (pendência 5) | Decisões do Gabriel sobre trapaças |
-| **Gabriel** | Mecânicas (`src/gameplay/trapacas.*`, `probabilidade.*`, `progressao.*`) | Lista de mecânicas com proposta de implementação | Fechar as pendências 1, 2 e 10; implementar trapaças, chance de descoberta e suspeita individual; roleta russa e balas | Loop da mão do Arthur; baralho; motor |
+| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes (PR #5); revisão e merge dos PRs #1, #2 e #6; testes do baralho ligados ao `make test` | Loop da mão (seção 3.1), usando o torneio; definir os eventos para a UI; integrar IA, trapaças e UI; atualizar o README; revisar e mesclar os PRs | Nada: motor, baralho e torneio já estão na `develop` |
+| **Júlia** | Motor de pôquer (`src/poker`) | Avaliação, apostas e pote com testes; correções do review aplicadas (PR #1, já na `develop`); contrato do motor escrito em `poker.h`: fases, `poker_start_hand` e `poker_settle` (PR #6, já na `develop`) | Decidir com o Gabriel os custos no meio da mão (5.2); newline final em `src/poker/poker.c` | Decisões do Gabriel sobre custos |
+| **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/adversarios.*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, já na `develop`); motor de decisão da IA com testes (PR #7, aberto, em revisão) | Operações novas do baralho para as trapaças (5.3); os 3 perfis de IA sobre um motor único; Insertion Sort das mãos (pendência 5) | Decisões do Gabriel sobre trapaças |
+| **Gabriel** | Mecânicas (`src/gameplay/trapacas.*`, `probabilidade.*`, `progressao.*`) | Lista de mecânicas com proposta de implementação | Fechar as pendências 1, 2 e 10; implementar trapaças, chance de descoberta e suspeita individual; roleta russa e balas | Loop da mão do Arthur |
 | **Matheus** | Interface (`src/ui`) | Ideias de mecânicas no grupo | Telas da Raylib (mesa, cartas, fichas); animações (distribuir, apostar, trapaça, roleta); efeitos de tensão; decidir Raylib x SDL | Lista de eventos do Arthur; estado do jogo |
 
-**Caminho crítico:** ajuste e merge do PR #2 (baralho) → loop da mão do Arthur. O PR #1 (motor) e o PR #3 (tela inicial e loop principal) já estão na `develop`. O Gabriel e o Matheus dependem do loop da mão para testar o que implementarem.
+**Caminho crítico:** loop da mão do Arthur. O motor (PR #1, com o contrato no PR #6), o baralho (PR #2), a tela inicial e o loop principal (PR #3) e o torneio (PR #5) já estão na `develop`. O Gabriel e o Matheus dependem do loop da mão para testar o que implementarem.
 
 ## 8. Integração imediata
 
 1. **PR #1 (Júlia)** já está na `develop`. As quatro correções pedidas no review foram feitas: motor em `src/poker/`, demos em `examples/`, `poker_settle` compatível com C11 e testes de all-in e empate.
-2. **PR #2 (Rafael)** foi criado em cima da versão antiga do motor (arquivos na raiz) e inclui os commits antigos da Júlia. Agora que o #1 entrou, precisa de **rebase** (ficando só os commits do baralho) e de três ajustes pequenos, que já foram testados:
-   - `src/cards/deck.h`: trocar `#include "../../poker.h"` por `#include "../poker/poker.h"`.
-   - `tests/test_edge_cases.c` e `tests/test_integration.c`: chamar `poker_settle(&table, hole[0], hole[1], board, &result)` (e `poker_settle(&table, NULL, NULL, NULL, &result)` no caso de fold).
-   - Incluir os testes do baralho no Makefile.
-   Com esses ajustes, os quatro programas de teste (`test_poker`, `test_deck`, `test_edge_cases`, `test_integration`) compilam com `-std=c11 -Wall -Wextra -Wpedantic -Werror` e passam.
-3. **PR #3 (Arthur)** já está na `develop`: tela inicial, loop principal e alvo `make jogo`, com o `Makefile` e o `README.md` da Júlia preservados. O Rafael deve partir dessa `develop` ao refazer o #2, porque o `Makefile` e o `README.md` mudaram.
-4. **Em paralelo**, depois do loop da mão: trapaças (Gabriel), IA (Rafael) e telas (Matheus).
+2. **PR #2 (Rafael)** já está na `develop`: baralho em `src/cards/deck.*`, que usa o `PokerCard` do motor, com os testes `test_deck`, `test_edge_cases` e `test_integration`. O placeholder `src/cards/baralho.*` foi removido.
+3. **PR #3 (Arthur)** já está na `develop`: tela inicial, loop principal e alvo `make jogo`.
+4. **PR #5 (Arthur)** já está na `develop`: torneio em `src/core/torneio.*`, com `tests/test_torneio.c`.
+5. **PR #6 (Júlia)** já está na `develop`: contrato do motor documentado em `poker.h`.
+6. O `make test` roda os cinco programas de teste (`test_poker`, `test_torneio`, `test_deck`, `test_edge_cases` e `test_integration`) com `-std=c11 -Wall -Wextra -Wpedantic -Werror`.
+7. **Em paralelo**, depois do loop da mão: trapaças (Gabriel), IA (Rafael, PR #7 em revisão) e telas (Matheus).
 
 ## 9. Como contribuir
 
