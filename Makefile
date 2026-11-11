@@ -7,6 +7,8 @@ JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c
 JOGO_HEADERS = src/core/jogo.h src/ui/interface.h
 TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
+MAO_SRC = src/core/mao.c
+MAO_HEADERS = src/core/mao.h
 DECK_SRC = src/cards/deck.c
 DECK_HEADERS = src/cards/deck.h
 DECK_TESTS = build/test_deck build/test_edge_cases build/test_integration
@@ -28,9 +30,13 @@ build/test_torneio: tests/test_torneio.c $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(POK
 $(DECK_TESTS): build/%: tests/%.c $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/$*.c $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio $(DECK_TESTS)
+build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_mao.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
+
+test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS)
 	./build/test_poker
 	./build/test_torneio
+	./build/test_mao
 	./build/test_deck
 	./build/test_edge_cases
 	./build/test_integration
