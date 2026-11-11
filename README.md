@@ -92,7 +92,7 @@ make console-demo
 ./build/console_demo
 ```
 
-Os alvos usam `-std=c11 -Wall -Wextra -Wpedantic -Werror`. Os testes verificam vitória por par superior, all-in com stacks diferentes (ambos os assentos e vencedores), devolução de apostas não cobertas, empate, ficha ímpar, fold, conservação de fichas e rejeição de pagamento duplicado. A demonstração de console termina com saldos de `2300 / 1700` após raise para 300. O `make test` também roda `tests/test_torneio.c`, que joga confrontos completos com o motor e confere saldo, blinds, falência e recuperação.
+Os alvos usam `-std=c11 -Wall -Wextra -Wpedantic -Werror`. Os testes verificam vitória por par superior, all-in com stacks diferentes (ambos os assentos e vencedores), devolução de apostas não cobertas, empate, ficha ímpar, fold, conservação de fichas e rejeição de pagamento duplicado. A demonstração de console termina com saldos de `2300 / 1700` após raise para 300. O `make test` também roda `tests/test_torneio.c`, que joga confrontos completos com o motor e confere saldo, blinds, falência e recuperação, e os três testes do baralho (`test_deck`, `test_edge_cases` e `test_integration`), que conferem as 52 cartas únicas, a distribuição heads-up e partidas completas com o motor.
 
 Para compilar sem Make:
 
