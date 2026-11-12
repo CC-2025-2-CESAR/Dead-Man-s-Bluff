@@ -7,9 +7,14 @@ JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c
 JOGO_HEADERS = src/core/jogo.h src/ui/interface.h
 TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
+MAO_SRC = src/core/mao.c
+MAO_HEADERS = src/core/mao.h
 AI_SRC = src/gameplay/poker_ai.c src/gameplay/poker_ai_config.c
 AI_HEADERS = src/gameplay/poker_ai.h src/gameplay/poker_ai_config.h
 AI_CFLAGS = $(CFLAGS) -O2
+DECK_SRC = src/cards/deck.c
+DECK_HEADERS = src/cards/deck.h
+DECK_TESTS = build/test_deck build/test_edge_cases build/test_integration
 RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib)
 RAYLIB_LIBS = $(shell pkg-config --libs raylib)
 
@@ -25,9 +30,19 @@ build/test_poker: tests/test_poker.c $(POKER_SRC) $(POKER_HEADERS) | build
 build/test_torneio: tests/test_torneio.c $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_torneio.c $(TORNEIO_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow
+$(DECK_TESTS): build/%: tests/%.c $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/$*.c $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
+
+build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_mao.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
+
+test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow
 	./build/test_poker
 	./build/test_torneio
+	./build/test_mao
+	./build/test_deck
+	./build/test_edge_cases
+	./build/test_integration
 	./build/test_poker_ai
 	./build/test_ai_integration
 	./build/test_tabelas_config
