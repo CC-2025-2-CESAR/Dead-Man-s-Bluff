@@ -69,7 +69,7 @@ Dead-Man-s-Bluff/
 | `src/ui/` | Telas, menus, renderização e animações |
 | `assets/` | Imagens, sons e fontes |
 
-O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. O loop principal e os estados do jogo estão em `src/core/jogo.c`, a lógica do torneio (3 confrontos, saldo, blinds e recuperação após falência), em `src/core/torneio.c`, o loop de uma mão (baralho, motor e torneio juntos), em `src/core/mao.c`, a fila de eventos que a interface consome para animar a mão, em `src/core/eventos.c`, e a tela inicial, em `src/ui/interface.c`. Os demais módulos ainda contêm comentários `TODO`.
+O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. O loop principal e os estados do jogo estão em `src/core/jogo.c`, a lógica do torneio (3 confrontos, saldo, blinds e recuperação após falência), em `src/core/torneio.c`, o loop de uma mão (baralho, motor e torneio juntos), em `src/core/mao.c`, a fila de eventos que a interface consome para animar a mão, em `src/core/eventos.c`, a IA dos adversários (3 perfis), em `src/gameplay/poker_ai.c`, a ponte entre a mão e a IA, em `src/core/mao_ia.c`, e a tela inicial, em `src/ui/interface.c`. Os demais módulos ainda contêm comentários `TODO`.
 
 ## Estado atual
 
@@ -80,6 +80,7 @@ O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apos
 - [x] Lógica do torneio: 3 confrontos, saldo acumulado, blinds crescentes e recuperação após falência.
 - [x] Loop da mão: embaralhar, distribuir, rodadas de apostas, showdown e registro no torneio.
 - [x] Fila de eventos da mão para a interface animar (distribuição, ações, board, showdown e pagamento).
+- [x] IA dos adversários com 3 perfis e ponte para a mão (ainda não ligada à tela).
 - [ ] Implementação dos demais módulos.
 - [ ] Integração e testes.
 
