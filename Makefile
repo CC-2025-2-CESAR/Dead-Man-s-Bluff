@@ -9,13 +9,16 @@ TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
 MAO_SRC = src/core/mao.c
 MAO_HEADERS = src/core/mao.h
+AI_SRC = src/gameplay/poker_ai.c src/gameplay/poker_ai_config.c
+AI_HEADERS = src/gameplay/poker_ai.h src/gameplay/poker_ai_config.h
+AI_CFLAGS = $(CFLAGS) -O2
 DECK_SRC = src/cards/deck.c
 DECK_HEADERS = src/cards/deck.h
 DECK_TESTS = build/test_deck build/test_edge_cases build/test_integration
 RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib)
 RAYLIB_LIBS = $(shell pkg-config --libs raylib)
 
-.PHONY: all test console-demo raylib-demo jogo clean
+.PHONY: all test test-ai console-demo raylib-demo jogo clean
 all: test console-demo
 
 build:
@@ -33,13 +36,39 @@ $(DECK_TESTS): build/%: tests/%.c $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POK
 build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_mao.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS)
+test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez
 	./build/test_poker
 	./build/test_torneio
 	./build/test_mao
 	./build/test_deck
 	./build/test_edge_cases
 	./build/test_integration
+	./build/test_poker_ai
+	./build/test_ai_integration
+	./build/test_tabelas_config
+	./build/test_ai_match_flow
+	./build/test_ai_embriaguez
+
+test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez
+	./build/test_poker_ai
+	./build/test_ai_integration
+	./build/test_tabelas_config
+	./build/test_ai_match_flow
+
+build/test_poker_ai: tests/test_poker_ai.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_poker_ai.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
+
+build/test_ai_integration: tests/test_ai_integration.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_ai_integration.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
+
+build/test_tabelas_config: tests/test_tabelas_config.c src/gameplay/poker_ai_config.c $(AI_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_tabelas_config.c src/gameplay/poker_ai_config.c $(LDLIBS) -o $@
+
+build/test_ai_embriaguez: tests/test_ai_embriaguez.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_ai_embriaguez.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
+
+build/test_ai_match_flow: tests/test_ai_match_flow.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_ai_match_flow.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
 
 build/console_demo: examples/console_demo.c $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) examples/console_demo.c $(POKER_SRC) $(LDLIBS) -o $@
