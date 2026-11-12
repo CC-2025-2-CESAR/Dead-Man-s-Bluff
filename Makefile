@@ -11,6 +11,8 @@ EVENTOS_SRC = src/core/eventos.c
 EVENTOS_HEADERS = src/core/eventos.h
 MAO_SRC = src/core/mao.c $(EVENTOS_SRC)
 MAO_HEADERS = src/core/mao.h $(EVENTOS_HEADERS)
+MAO_IA_SRC = src/core/mao_ia.c
+MAO_IA_HEADERS = src/core/mao_ia.h
 AI_SRC = src/gameplay/poker_ai.c src/gameplay/poker_ai_config.c
 AI_HEADERS = src/gameplay/poker_ai.h src/gameplay/poker_ai_config.h
 AI_CFLAGS = $(CFLAGS) -O2
@@ -41,7 +43,7 @@ build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORN
 build/test_eventos: tests/test_eventos.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_eventos.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez
+test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia
 	./build/test_poker
 	./build/test_torneio
 	./build/test_mao
@@ -54,12 +56,18 @@ test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DE
 	./build/test_tabelas_config
 	./build/test_ai_match_flow
 	./build/test_ai_embriaguez
+	./build/test_mao_ia
 
-test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez
+test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia
 	./build/test_poker_ai
 	./build/test_ai_integration
 	./build/test_tabelas_config
 	./build/test_ai_match_flow
+	./build/test_ai_embriaguez
+	./build/test_mao_ia
+
+build/test_mao_ia: tests/test_mao_ia.c $(MAO_IA_SRC) $(MAO_IA_HEADERS) $(MAO_SRC) $(MAO_HEADERS) $(AI_SRC) $(AI_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_mao_ia.c $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
 
 build/test_poker_ai: tests/test_poker_ai.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_poker_ai.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
