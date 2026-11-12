@@ -55,7 +55,7 @@ Quem chama o quê, em ordem:
 2. **cards**: `deck_create`, `deck_shuffle`, `deck_deal(deck, dealer, hole)`.
 3. **poker**: `poker_start_hand(&table, stacks, dealer, small_blind, big_blind)`. Atenção: se um stack for menor ou igual ao blind, a mão já volta em `POKER_SHOWDOWN`, sem ninguém agir.
 4. **Rodada de apostas**: enquanto `table.phase == POKER_ACTING`, age quem está em `table.actor`.
-   - Humano: a UI devolve a ação escolhida. IA: `adversarios` devolve a ação.
+   - Humano: a UI devolve a ação escolhida. IA: `poker_ai_choose_action` (`src/gameplay/poker_ai.h`) devolve a ação.
    - `poker_legal_actions` diz o que é permitido e `poker_act` aplica a ação.
 5. Em `POKER_STREET_FINISHED`: `deck_deal_board(deck, street, board, &n)` e depois `poker_next_street`.
 6. Em `POKER_SHOWDOWN` ou `POKER_UNCONTESTED`: o **core completa o board** e chama `poker_settle(&table, hole0, hole1, board, &result)`. Isso vale também quando o all-in acontece antes do river, porque o motor exige as 5 cartas do board no showdown.
@@ -68,6 +68,7 @@ Quem chama o quê, em ordem:
 - Enquanto `mao.situacao == MAO_EM_ANDAMENTO`, age o assento `mao.mesa.actor`. Quem decide a ação (a UI, para o jogador, ou a IA, para o adversário) chama `mao_agir(&mao, acao)`, que devolve o status do motor. Ação recusada não altera a mão.
 - `mao_agir` distribui o board a cada rodada, completa o board quando há all-in antes do river (sem chamar `poker_next_street`) e paga o pote com `poker_settle`. Ao fim, `mao.resultado` tem o resultado e o baralho já foi liberado.
 - `mao_registrar_no_torneio(&mao, &torneio)` passa as fichas finais ao torneio, uma única vez por mão. `mao_liberar(&mao)` solta o baralho de uma mão abandonada.
+- `mao_iniciar_com_eventos(&mao, &torneio, &fila)` faz o mesmo e registra os eventos da mão para a interface (ver 3.3).
 - O embaralhamento usa `rand()`: o jogo chama `srand` uma vez, antes da primeira mão.
 - Os testes jogam desistência, mão até o river, all-in no pré-flop, no flop e no turn, stacks menores que o blind e 120 torneios inteiros com ações aleatórias. Conferem que as fichas se conservam, que as cartas da mesa são todas distintas e que o vencedor bate com uma avaliação independente.
 
@@ -82,7 +83,21 @@ Quem chama o quê, em ordem:
 
 ### 3.3 Eventos para a UI
 
-**[Proposta]** O Matheus precisa saber *o que* animar. Sugestão: o `core` registra uma fila de eventos (distribuir cartas, apostar, desistir, nova rodada, showdown, pagar pote, trapaça aplicada, trapaça descoberta, roleta) e a UI consome essa fila. Assim a UI não precisa ler o estado do motor para descobrir o que mudou. O formato dos eventos é o Arthur quem define, junto com o Matheus.
+**[Proposta]** O Matheus precisa saber *o que* animar. O `core` registra uma fila de eventos e a UI a consome, sem ler o estado do motor para descobrir o que mudou. O formato está em `src/core/eventos.h`, com testes em `tests/test_eventos.c`, para o Matheus confirmar ou ajustar:
+
+| Evento | Quando | Dados principais |
+| --- | --- | --- |
+| `EVENTO_MAO_INICIADA` | nova mão | dealer, blinds nominais, fichas postadas e restantes de cada assento |
+| `EVENTO_CARTAS_DISTRIBUIDAS` | uma vez por assento, a começar pelo dealer | assento e as duas cartas |
+| `EVENTO_ACAO` | cada ação | assento, tipo (desistir, passar, pagar, apostar, aumentar, all-in), fichas colocadas, total na rua, fichas restantes e pote |
+| `EVENTO_BOARD_REVELADO` | flop, turn e river, inclusive quando o all-in vem antes do river | rua e cartas novas |
+| `EVENTO_SHOWDOWN` | só se ninguém desistiu | cartas e melhor mão de cada assento |
+| `EVENTO_POTE_PAGO` | fim da mão | vencedor (ou empate), pote, prêmio, devolução e fichas finais |
+
+- Para ligar a fila, use `mao_iniciar_com_eventos(&mao, &torneio, &fila)`. `mao_iniciar` continua valendo e não registra nada.
+- Os eventos saem na ordem em que acontecem. No all-in antes do river vêm `EVENTO_ACAO`, os três `EVENTO_BOARD_REVELADO`, `EVENTO_SHOWDOWN` e `EVENTO_POTE_PAGO`, todos dentro da mesma chamada de `mao_agir`; o ritmo da animação é da UI.
+- A fila é circular, com 256 eventos. A UI deve consumi-la a cada quadro com `fila_eventos_retirar`. Se ela encher, o evento novo é descartado e `fila.perdidos` aumenta; nesse caso a UI redesenha a mesa a partir do estado da mão.
+- Ainda não existem eventos de trapaça aplicada, trapaça descoberta e roleta. Quem implementar essas mecânicas (Gabriel) acrescenta os tipos em `eventos.h`.
 
 ## 4. Regras do jogo (resumo do conceito v0.2)
 
@@ -225,9 +240,9 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 
 | Pessoa | Área | Já feito | Próximos passos | Depende de |
 | --- | --- | --- | --- | --- |
-| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes (PR #5); revisão e merge dos PRs #1, #2 e #6; testes do baralho ligados ao `make test`; loop da mão com testes (`src/core/mao.*`) | Definir os eventos para a UI e ligar a mão à tela do jogo; encaixar a IA no turno do adversário; integrar trapaças e UI; atualizar o README; revisar e mesclar os PRs | Matheus, para combinar os eventos da UI; Rafael, para o encaixe da IA |
+| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes (PR #5); revisão e merge dos PRs #1, #2 e #6; testes do baralho ligados ao `make test`; loop da mão com testes (`src/core/mao.*`); fila de eventos para a UI com testes (`src/core/eventos.*`) | Ligar a mão à tela do jogo; encaixar a IA no turno do adversário; integrar trapaças e UI; atualizar o README; revisar e mesclar os PRs | Matheus, para confirmar os eventos da UI (proposta em 3.3); Rafael, para o encaixe da IA |
 | **Júlia** | Motor de pôquer (`src/poker`) | Avaliação, apostas e pote com testes; correções do review aplicadas (PR #1, já na `develop`); contrato do motor escrito em `poker.h`: fases, `poker_start_hand` e `poker_settle` (PR #6, já na `develop`) | Decidir com o Gabriel os custos no meio da mão (5.2); newline final em `src/poker/poker.c` | Decisões do Gabriel sobre custos |
-| **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/adversarios.*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, já na `develop`); motor de decisão da IA com testes (PR #7, aberto, em revisão) | Operações novas do baralho para as trapaças (5.3); os 3 perfis de IA sobre um motor único; Insertion Sort das mãos (pendência 5) | Decisões do Gabriel sobre trapaças |
+| **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/adversarios.*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, já na `develop`); motor de decisão da IA com testes, em `src/gameplay/poker_ai*` (PR #7, já na `develop`) | Operações novas do baralho para as trapaças (5.3); os 3 perfis de IA sobre um motor único; Insertion Sort das mãos (pendência 5) | Decisões do Gabriel sobre trapaças |
 | **Gabriel** | Mecânicas (`src/gameplay/trapacas.*`, `probabilidade.*`, `progressao.*`) | Lista de mecânicas com proposta de implementação | Fechar as pendências 1, 2 e 10; implementar trapaças, chance de descoberta e suspeita individual; roleta russa e balas | Loop da mão do Arthur |
 | **Matheus** | Interface (`src/ui`) | Ideias de mecânicas no grupo | Telas da Raylib (mesa, cartas, fichas); animações (distribuir, apostar, trapaça, roleta); efeitos de tensão; decidir Raylib x SDL | Lista de eventos do Arthur; estado do jogo |
 
@@ -241,8 +256,9 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 4. **PR #5 (Arthur)** já está na `develop`: torneio em `src/core/torneio.*`, com `tests/test_torneio.c`.
 5. **PR #6 (Júlia)** já está na `develop`: contrato do motor documentado em `poker.h`.
 6. **Loop da mão (Arthur)** já está na `develop`: `src/core/mao.*`, com `tests/test_mao.c` (ver 3.1). Ainda não está ligado à tela: o `make jogo` continua mostrando a mesa provisória.
-7. O `make test` roda os seis programas de teste (`test_poker`, `test_torneio`, `test_mao`, `test_deck`, `test_edge_cases` e `test_integration`) com `-std=c11 -Wall -Wextra -Wpedantic -Werror`.
-8. **Em paralelo**, depois do loop da mão: trapaças (Gabriel), IA (Rafael, PR #7 em revisão) e telas (Matheus).
+7. **Fila de eventos (Arthur)** já está na `develop`: `src/core/eventos.*`, com `tests/test_eventos.c` (ver 3.3). A `Mao` registra os eventos quando iniciada com `mao_iniciar_com_eventos`.
+8. O `make test` roda os programas de teste do motor, do torneio, da mão, dos eventos, do baralho e da IA com `-std=c11 -Wall -Wextra -Wpedantic -Werror`.
+9. **Em paralelo**, depois do loop da mão: trapaças (Gabriel), IA (Rafael, motor de decisão em `src/gameplay/poker_ai*`, já na `develop`) e telas (Matheus).
 
 ## 9. Como contribuir
 
