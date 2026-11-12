@@ -833,6 +833,11 @@ PokerStatus poker_ai_choose_action_mode(
         action.type = current_bet_zero ? POKER_BET : POKER_RAISE;
         action.total = choose_bet_total(style, POKER_AI_BET_NORMAL, current_bet_zero,
                                          table, &legal, action_rng);
+        /* Agressivo bebado alterna tamanhos pequenos e grandes. */
+        if (intoxicated && style == POKER_AI_AGGRESSIVE &&
+            poker_ai_rng_uniform(action_rng) < 0.50)
+            action.total = choose_bet_total(style, POKER_AI_BET_BIG,
+                                             current_bet_zero, table, &legal, action_rng);
         break;
     case POKER_AI_ACTION_RAISE_BIG:
     default:
@@ -845,7 +850,11 @@ PokerStatus poker_ai_choose_action_mode(
             action.total = 0;
         } else {
             action.type = current_bet_zero ? POKER_BET : POKER_RAISE;
-            action.total = choose_bet_total(style, POKER_AI_BET_BIG, current_bet_zero,
+            PokerAIBetKind kind = POKER_AI_BET_BIG;
+            if (intoxicated && style == POKER_AI_AGGRESSIVE &&
+                poker_ai_rng_uniform(action_rng) < 0.25)
+                kind = POKER_AI_BET_NORMAL;
+            action.total = choose_bet_total(style, kind, current_bet_zero,
                                              table, &legal, action_rng);
         }
         break;
