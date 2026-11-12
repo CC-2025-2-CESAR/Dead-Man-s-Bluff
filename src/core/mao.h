@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 #include "cards/deck.h"
+#include "core/eventos.h"
 #include "core/torneio.h"
 #include "poker.h"
 
@@ -36,6 +37,8 @@ typedef enum {
  * cartas_no_board: quantas posições de board estão preenchidas.
  * resultado: resultado do pagamento; só vale depois de MAO_ENCERRADA.
  * situacao: situação atual da mão.
+ * eventos: fila que recebe os eventos da mão, ou NULL se ninguém os
+ * consome. A fila pertence a quem a criou, não à Mao.
  *
  * Inicialize com Mao mao = {0}; antes da primeira chamada a mao_iniciar.
  */
@@ -47,6 +50,7 @@ typedef struct {
     size_t cartas_no_board;
     PokerResult resultado;
     MaoSituacao situacao;
+    FilaEventos *eventos;
 } Mao;
 
 /**
@@ -61,6 +65,8 @@ typedef struct {
  * Libera o baralho de uma mão anterior que tenha ficado aberta. Em caso de
  * falha devolve false e deixa a Mao vazia.
  *
+ * Não registra eventos. Para animar a mão, use mao_iniciar_com_eventos.
+ *
  * @param mao mão a iniciar, zerada ou já usada.
  * @param torneio torneio em andamento; a mão não o altera.
  * @return true se a mão começou; false se o torneio não está em andamento
@@ -69,12 +75,30 @@ typedef struct {
 bool mao_iniciar(Mao *mao, const Torneio *torneio);
 
 /**
+ * Faz o mesmo que mao_iniciar e registra na fila os eventos da mão inteira,
+ * a começar pelos que acontecem dentro desta chamada: EVENTO_MAO_INICIADA,
+ * as cartas de cada assento e, se a mão já se resolver sozinha, o board, o
+ * showdown e o pagamento do pote. Os eventos seguintes vêm de mao_agir.
+ *
+ * @param mao mão a iniciar, zerada ou já usada.
+ * @param torneio torneio em andamento; a mão não o altera.
+ * @param eventos fila que recebe os eventos, ou NULL para não registrar.
+ * @return true se a mão começou.
+ */
+bool mao_iniciar_com_eventos(
+    Mao *mao,
+    const Torneio *torneio,
+    FilaEventos *eventos
+);
+
+/**
  * Aplica a ação do assento da vez (Mao.mesa.actor) e avança a mão até a
  * próxima decisão. Distribui o board a cada rodada, completa o board quando
  * há all-in antes do river e paga o pote com poker_settle ao fim.
  *
  * Uma ação recusada pelo motor não altera a mão e pode ser substituída por
- * outra.
+ * outra. Se a mão tem fila de eventos, registra EVENTO_ACAO e os eventos que
+ * a ação provocar (board, showdown e pagamento do pote).
  *
  * @param mao mão em andamento.
  * @param acao ação do assento da vez.
