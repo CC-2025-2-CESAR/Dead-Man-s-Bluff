@@ -31,4 +31,7 @@ typedef enum {
 // Função de inicialização
 void cheat_init_state(CheatState *state);
 
+// 1. Spike His Drink
+CheatResult cheat_spike_drink(CheatState *state, int base_risk);
+
 #endif
