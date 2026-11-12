@@ -57,6 +57,8 @@ test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config
 	./build/test_ai_integration
 	./build/test_tabelas_config
 	./build/test_ai_match_flow
+	./build/test_ai_embriaguez
+	./build/test_mao_ia
 
 build/test_mao_ia: tests/test_mao_ia.c $(MAO_IA_SRC) $(MAO_IA_HEADERS) $(MAO_SRC) $(MAO_HEADERS) $(AI_SRC) $(AI_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_mao_ia.c $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
