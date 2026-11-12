@@ -1,0 +1,19 @@
+name: Testes C - IA e motor
+on:
+  push:
+    branches: [feature/ia-cenarios-rafa]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar compilador
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+      - name: Executar testes da IA
+        run: make test-ai
+      - name: Executar todos os testes
+        run: make test
