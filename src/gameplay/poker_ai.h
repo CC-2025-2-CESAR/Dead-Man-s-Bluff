@@ -242,9 +242,11 @@ PokerStatus poker_ai_choose_action_mode(
     const PokerAIContext *context, bool intoxicated,
     PokerAIDecisionInfo *info_out, PokerAction *out);
 
-/* Hook para a futura mecanica de trapaça: devolve probabilidade ajustada
- * [0,1]. Desconfiado bebado recebe fator 0.55; outras combinacoes nao
- * mudam. Ainda precisa ser chamado pelo modulo de suspeita. */
+/* Hook para futura deteccao de trapaça:
+ * chance = min(1, chance_base * fator_personalidade * fator_embriaguez).
+ * Fatores iniciais: CAUTIOUS=1.0, BALANCED=1.7, AGGRESSIVE=0.8.
+ * BALANCED embriagado usa fator adicional 0.55.
+ * Ainda NAO executa deteccao nem aplica penalidade: so calcula chance. */
 double poker_ai_detection_chance(PokerAIStyle style, bool intoxicated,
                                   double base_chance);
 
