@@ -233,4 +233,13 @@ PokerStatus poker_ai_choose_action(
     PokerAction *out
 );
 
+/* Embriaguez V1: mesma entrada/saida da API padrao, com flag adicional.
+ * FALSE reproduz a IA sobria; TRUE habilita modificadores por perfil.
+ * A integracao Raylib pode continuar usando poker_ai_choose_action(). */
+PokerStatus poker_ai_choose_action_mode(
+    const PokerTable *table, int seat, const PokerCard hole[2],
+    const PokerCard *board, size_t board_count,
+    const PokerAIContext *context, bool intoxicated,
+    PokerAIDecisionInfo *info_out, PokerAction *out);
+
 #endif
