@@ -887,7 +887,17 @@ double poker_ai_detection_chance(PokerAIStyle style, bool intoxicated,
 {
     if (!isfinite(base_chance) || base_chance < 0.0 || base_chance > 1.0)
         return NAN;
-    if (intoxicated && style == POKER_AI_BALANCED)
-        return base_chance * 0.55;
-    return base_chance;
+    /* Fatores iniciais de balanceamento, nao valores definitivos.
+     * O alcool reduz a eficacia do DESCONFIADO, sem zerar o perigo. */
+    double personality_multiplier;
+    switch (style) {
+    case POKER_AI_CAUTIOUS: personality_multiplier = 1.00; break;
+    case POKER_AI_BALANCED: personality_multiplier = 1.70; break;
+    case POKER_AI_AGGRESSIVE: personality_multiplier = 0.80; break;
+    default: return NAN;
+    }
+    double alcohol_multiplier =
+        intoxicated && style == POKER_AI_BALANCED ? 0.55 : 1.00;
+    double chance = base_chance * personality_multiplier * alcohol_multiplier;
+    return chance > 1.0 ? 1.0 : chance;
 }
