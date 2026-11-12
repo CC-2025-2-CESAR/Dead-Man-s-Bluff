@@ -879,3 +879,15 @@ PokerStatus poker_ai_choose_action(
                                        context, false, info_out, out);
 }
 
+
+/* Multiplicador isolado para o futuro sistema de trapaça.
+ * Nao sorteia deteccao nem aplica penalidade aqui. */
+double poker_ai_detection_chance(PokerAIStyle style, bool intoxicated,
+                                  double base_chance)
+{
+    if (!isfinite(base_chance) || base_chance < 0.0 || base_chance > 1.0)
+        return NAN;
+    if (intoxicated && style == POKER_AI_BALANCED)
+        return base_chance * 0.55;
+    return base_chance;
+}
