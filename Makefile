@@ -36,7 +36,7 @@ $(DECK_TESTS): build/%: tests/%.c $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POK
 build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_mao.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow
+test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez
 	./build/test_poker
 	./build/test_torneio
 	./build/test_mao
@@ -47,8 +47,9 @@ test: build/test_poker build/test_torneio build/test_mao $(DECK_TESTS) build/tes
 	./build/test_ai_integration
 	./build/test_tabelas_config
 	./build/test_ai_match_flow
+	./build/test_ai_embriaguez
 
-test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow
+test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez
 	./build/test_poker_ai
 	./build/test_ai_integration
 	./build/test_tabelas_config
@@ -62,6 +63,9 @@ build/test_ai_integration: tests/test_ai_integration.c $(AI_SRC) $(AI_HEADERS) $
 
 build/test_tabelas_config: tests/test_tabelas_config.c src/gameplay/poker_ai_config.c $(AI_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_tabelas_config.c src/gameplay/poker_ai_config.c $(LDLIBS) -o $@
+
+build/test_ai_embriaguez: tests/test_ai_embriaguez.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_ai_embriaguez.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
 
 build/test_ai_match_flow: tests/test_ai_match_flow.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_ai_match_flow.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
