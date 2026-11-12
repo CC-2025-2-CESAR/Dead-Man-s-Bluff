@@ -72,9 +72,14 @@ int main(void)
     check_style(POKER_AI_BALANCED);
     check_style(POKER_AI_AGGRESSIVE);
     assert(fabs(poker_ai_detection_chance(POKER_AI_BALANCED, true, .60) -
-                .33) < 1e-12);
-    assert(fabs(poker_ai_detection_chance(POKER_AI_BALANCED, false, .60) -
-                .60) < 1e-12);
+                .561) < 1e-12);
+    assert(fabs(poker_ai_detection_chance(POKER_AI_BALANCED, false, .20) -
+                .34) < 1e-12);
+    assert(fabs(poker_ai_detection_chance(POKER_AI_CAUTIOUS, false, .20) -
+                .20) < 1e-12);
+    assert(fabs(poker_ai_detection_chance(POKER_AI_AGGRESSIVE, false, .20) -
+                .16) < 1e-12);
+    assert(poker_ai_detection_chance(POKER_AI_BALANCED, false, .90) == 1.0);
     assert(isnan(poker_ai_detection_chance(POKER_AI_BALANCED, true, -1.0)));
     puts("embriaguez v1: testes aprovados");
     return 0;
