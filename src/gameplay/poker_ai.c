@@ -624,13 +624,14 @@ static void fill_info(
     info->chosen_slot = chosen;
 }
 
-PokerStatus poker_ai_choose_action(
+PokerStatus poker_ai_choose_action_mode(
     const PokerTable *table,
     int seat,
     const PokerCard hole[2],
     const PokerCard *board,
     size_t board_count,
     const PokerAIContext *context,
+    bool intoxicated,
     PokerAIDecisionInfo *info_out,
     PokerAction *out
 )
@@ -777,11 +778,41 @@ PokerStatus poker_ai_choose_action(
         cheap_all_in_override = true;
     }
 
+    /* Embriaguez V1: modifica pesos EFETIVOS, nunca a tabela-base.
+     * CAUTIOUS e BALANCED: pagam mais calls que deveriam abandonar.
+     * AGGRESSIVE: converte parte dos folds em apostas/raises.
+     * Um check gratuito jamais e convertido em fold. */
+    if (intoxicated) {
+        if ((style == POKER_AI_CAUTIOUS || style == POKER_AI_BALANCED) &&
+            legal.call && legal_slot[POKER_AI_ACTION_PASSIVE]) {
+            double shift = effective[POKER_AI_ACTION_FOLD] *
+                (style == POKER_AI_CAUTIOUS ? 0.40 : 0.35);
+            effective[POKER_AI_ACTION_FOLD] -= shift;
+            effective[POKER_AI_ACTION_PASSIVE] += shift;
+        } else if (style == POKER_AI_AGGRESSIVE) {
+            double shift = effective[POKER_AI_ACTION_FOLD] * 0.30;
+            effective[POKER_AI_ACTION_FOLD] -= shift;
+            if (legal_slot[POKER_AI_ACTION_RAISE_BIG])
+                effective[POKER_AI_ACTION_RAISE_BIG] += shift;
+            else if (legal_slot[POKER_AI_ACTION_RAISE])
+                effective[POKER_AI_ACTION_RAISE] += shift;
+            else
+                effective[POKER_AI_ACTION_FOLD] += shift;
+        }
+    }
+
     double total_effective = effective[0] + effective[1] + effective[2] + effective[3];
     if (total_effective <= 0.0)
         return POKER_ERR_ACTION;
 
     PokerAIActionSlot chosen = weighted_pick(effective, action_rng);
+    /* 12% por decisao elegivel, independentemente da forca da mao.
+     * Usa o RNG da IA e exige um all-in OFENSIVO legal. */
+    bool impulsive_shove = intoxicated && style == POKER_AI_AGGRESSIVE &&
+        offensive_all_in_legal &&
+        poker_ai_rng_uniform(action_rng) < 0.12;
+    if (impulsive_shove)
+        chosen = POKER_AI_ACTION_RAISE_BIG;
 
     PokerAction action;
     switch (chosen) {
@@ -808,7 +839,7 @@ PokerStatus poker_ai_choose_action(
         /* Os pesos de BIG continuam por personalidade. Com raise curto
          * permitido, BIG pode virar all-in; com SPR baixo, vira shove. */
         if (offensive_all_in_legal &&
-            (!conventional_raise_legal ||
+            (impulsive_shove || !conventional_raise_legal ||
              (spr >= 0.0 && spr <= poker_ai_offensive_all_in_spr_max))) {
             action.type = POKER_ALL_IN;
             action.total = 0;
@@ -827,3 +858,15 @@ PokerStatus poker_ai_choose_action(
     *out = action;
     return POKER_OK;
 }
+
+/* A API antiga continua identica: todos os chamadores existentes seguem sobrios. */
+PokerStatus poker_ai_choose_action(
+    const PokerTable *table, int seat, const PokerCard hole[2],
+    const PokerCard *board, size_t board_count,
+    const PokerAIContext *context, PokerAIDecisionInfo *info_out,
+    PokerAction *out)
+{
+    return poker_ai_choose_action_mode(table, seat, hole, board, board_count,
+                                       context, false, info_out, out);
+}
+
