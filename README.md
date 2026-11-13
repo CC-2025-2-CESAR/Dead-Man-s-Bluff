@@ -39,7 +39,7 @@ A atmosfera é inspirada em **007 — Cassino Royale**: mesas de alto risco, ten
 - Linguagem **C**.
 - Biblioteca **Raylib** para a parte gráfica.
 - **Listas simplesmente encadeadas** para o gerenciamento das cartas, com o baralho em `src/cards/deck.c`.
-- **Insertion Sort** para a ordenação das mãos.
+- **Insertion Sort** para a ordenação das mãos, sobre a lista encadeada de `src/cards/lista_cartas.c`.
 - Algoritmos próprios para as probabilidades e para as decisões dos adversários, como a estimativa de equidade por Monte Carlo.
 
 ## Equipe e responsabilidades
@@ -82,7 +82,7 @@ Dead-Man-s-Bluff/
 | `src/ui/` | Telas, menus, renderização e animações |
 | `assets/` | Imagens, sons e fontes |
 
-O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. O loop principal e os estados do jogo estão em `src/core/jogo.c`, a lógica do torneio (3 confrontos, saldo, blinds e recuperação após falência), em `src/core/torneio.c`, o loop de uma mão (baralho, motor e torneio juntos), em `src/core/mao.c`, a fila de eventos que a interface consome para animar a mão, em `src/core/eventos.c`, a IA dos adversários (3 perfis), em `src/gameplay/poker_ai.c`, a ponte entre a mão e a IA, em `src/core/mao_ia.c`, o controlador da partida (torneio, mão, eventos e IA juntos), em `src/core/partida.c`, e a tela inicial, em `src/ui/interface.c`. Os demais módulos ainda contêm comentários `TODO`.
+O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. O loop principal e os estados do jogo estão em `src/core/jogo.c`, a lógica do torneio (3 confrontos, saldo, blinds e recuperação após falência), em `src/core/torneio.c`, o loop de uma mão (baralho, motor e torneio juntos), em `src/core/mao.c`, a fila de eventos que a interface consome para animar a mão, em `src/core/eventos.c`, a IA dos adversários (3 perfis), em `src/gameplay/poker_ai.c`, a ponte entre a mão e a IA, em `src/core/mao_ia.c`, o controlador da partida (torneio, mão, eventos e IA juntos), em `src/core/partida.c`, a lista encadeada de cartas com o Insertion Sort das mãos, em `src/cards/lista_cartas.c`, e a tela inicial, em `src/ui/interface.c`. Os demais módulos ainda contêm comentários `TODO`.
 
 ## Estado atual
 
@@ -95,6 +95,7 @@ O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apos
 - [x] Fila de eventos da mão para a interface animar (distribuição, ações, board, showdown e pagamento).
 - [x] IA dos adversários com 3 perfis e ponte para a mão.
 - [x] Controlador da partida: torneio, mão, fila de eventos e IA juntos, com o perfil de cada confronto.
+- [x] Lista encadeada de cartas com Insertion Sort para ordenar as mãos, usada pela mão e mostrada na mesa de teste.
 - [x] Mesa jogável de ponta a ponta no `make jogo`, com interface de teste em texto cru (o design da mesa é do Matheus).
 - [ ] Trapaças, suspeita e roleta russa.
 - [ ] Interface gráfica definitiva (mesa, cartas, fichas e animações).
@@ -111,7 +112,7 @@ make console-demo
 ./build/console_demo
 ```
 
-Os alvos usam `-std=c11 -Wall -Wextra -Wpedantic -Werror`. Os testes verificam vitória por par superior, all-in com stacks diferentes (ambos os assentos e vencedores), devolução de apostas não cobertas, empate, ficha ímpar, fold, conservação de fichas e rejeição de pagamento duplicado. A demonstração de console termina com saldos de `2300 / 1700` após raise para 300. O `make test` também roda `tests/test_torneio.c`, que joga confrontos completos com o motor e confere saldo, blinds, falência e recuperação, `tests/test_mao.c`, que joga mãos inteiras com baralho, motor e torneio (desistência, all-in em cada rua, stacks menores que o blind e torneios completos com ações aleatórias), `tests/test_eventos.c`, que confere a fila de eventos e a sequência de eventos de cada tipo de mão, `tests/test_partida.c`, que joga partidas inteiras contra a IA, e os três testes do baralho (`test_deck`, `test_edge_cases` e `test_integration`), que conferem as 52 cartas únicas, a distribuição heads-up e partidas completas com o motor.
+Os alvos usam `-std=c11 -Wall -Wextra -Wpedantic -Werror`. Os testes verificam vitória por par superior, all-in com stacks diferentes (ambos os assentos e vencedores), devolução de apostas não cobertas, empate, ficha ímpar, fold, conservação de fichas e rejeição de pagamento duplicado. A demonstração de console termina com saldos de `2300 / 1700` após raise para 300. O `make test` também roda `tests/test_torneio.c`, que joga confrontos completos com o motor e confere saldo, blinds, falência e recuperação, `tests/test_mao.c`, que joga mãos inteiras com baralho, motor e torneio (desistência, all-in em cada rua, stacks menores que o blind e torneios completos com ações aleatórias), `tests/test_eventos.c`, que confere a fila de eventos e a sequência de eventos de cada tipo de mão, `tests/test_partida.c`, que joga partidas inteiras contra a IA, `tests/test_lista_cartas.c`, que confere a lista de cartas e o Insertion Sort contra o `qsort`, e os três testes do baralho (`test_deck`, `test_edge_cases` e `test_integration`), que conferem as 52 cartas únicas, a distribuição heads-up e partidas completas com o motor.
 
 Para compilar sem Make:
 
@@ -167,7 +168,7 @@ make jogo
 
 Abre a tela inicial: **W/S** ou as setas navegam e **ENTER** ou **ESPAÇO** confirmam. **Jogar** começa o torneio contra os três adversários (Agressivo, Medroso e Desconfiado), e **ESC** volta ao menu. **Sair**, ou fechar a janela, encerra o jogo.
 
-A mesa ainda é um texto cru de teste, sem design, que o Matheus vai substituir. Na sua vez: **F** desiste, **C** passa ou paga, **R** aposta ou aumenta (as setas para cima e para baixo ajustam o valor, em passos de um big blind), **A** vai all-in. **ENTER** ou **ESPAÇO** seguem para a próxima mão. A falência encerra a partida, porque a roleta ainda não existe; **ENTER** recomeça.
+A mesa ainda é um texto cru de teste, sem design, que o Matheus vai substituir. Ela mostra a sua mão (suas cartas mais o board) ordenada da maior para a menor carta, com o Insertion Sort. Na sua vez: **F** desiste, **C** passa ou paga, **R** aposta ou aumenta (as setas para cima e para baixo ajustam o valor, em passos de um big blind), **A** vai all-in. **ENTER** ou **ESPAÇO** seguem para a próxima mão. A falência encerra a partida, porque a roleta ainda não existe; **ENTER** recomeça.
 
 No MSYS2 UCRT64, use `mingw32-make jogo` e mantenha `C:\msys64\ucrt64\bin` no `PATH`, pois o executável usa a `libraylib.dll` e a `glfw3.dll` dessa pasta.
 
