@@ -2,8 +2,8 @@
 
 > Documento vivo do **Dead Man's Bluff**. Serve para o grupo saber o que já foi decidido, o que ainda está em aberto e o que cada pessoa precisa fazer.
 >
-> **Última atualização:** 08/11/2026.
-> **Fontes:** documento de conceito v0.2 (fixado no grupo), PR #1 (motor de pôquer), PR #2 (baralho) e a conversa do grupo.
+> **Última atualização:** 13/11/2026.
+> **Fontes:** documento de conceito v0.2 (fixado no grupo), os PRs já mesclados na `develop` e a conversa do grupo.
 >
 > Legenda: **[Decidido]** já está no código ou foi combinado · **[Proposta]** sugestão que o grupo precisa confirmar · **[Pendente]** ainda não há decisão.
 >
@@ -24,13 +24,11 @@
   7. Interface básica e efeitos visuais de tensão.
 - Fica para depois (visão futura): elementos roguelike, novos adversários, eventos aleatórios, mais trapaças e sistemas de progressão.
 
-**[Pendente]** O `README.md` ainda descreve o jogo como roguelike com stakes crescentes até um chefe final. No conceito v0.2 o roguelike é visão futura e o jogo é um torneio de 3 confrontos. O README precisa ser atualizado (responsável: Arthur).
-
 ## 2. Decisões já tomadas
 
 | Tema | Decisão | Onde está |
 | --- | --- | --- |
-| Linguagem | C, com Raylib na parte gráfica (a escolha Raylib x SDL ainda está aberta, ver seção 6) | — |
+| Linguagem | C, com Raylib na parte gráfica (decisão 3 da seção 6) | `Makefile`, `src/ui/interface.c` |
 | Formato da partida | Heads-up (2 jogadores), no-limit, blinds configuráveis | `PokerTable.player[2]` em `src/poker/poker.h` |
 | Fichas | `int64_t` (`PokerChips`), com limite `POKER_MAX_STACK` | `src/poker/poker.h` |
 | Carta | `PokerCard { rank 2..14, suit }`, definida pelo motor e **usada também pelo baralho** (fonte única) | `src/poker/poker.h`, `src/cards/deck.h` |
@@ -251,13 +249,13 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 | --- | --- | --- | --- | --- |
 | 1 | Política de cartas repetidas nas trapaças (5.1) | Gabriel, com Rafael e Júlia | Manter cartas únicas; trocar com carta real do baralho | Trapaças |
 | 2 | Custos de trapaça no meio da mão (5.2) | Júlia e Gabriel | Cobrar entre mãos; função própria no motor se for inevitável | Trapaças |
-| 3 | Raylib ou SDL | Grupo (Arthur e Matheus) | Raylib: o protótipo da tela inicial e o demo da Júlia já usam | UI |
+| 3 | Raylib ou SDL | Grupo (Arthur e Matheus) | **[Decidido]** Raylib: o jogo, as demos e o contrato da interface (3.4) já usam. O Matheus avisa no PR se tiver motivo para mudar | — |
 | 4 | Idioma dos nomes no código | Grupo | Escolher um critério e registrar aqui. Hoje: motor e baralho em inglês (`poker_*`, `deck_*`); o placeholder do baralho se chamava `baralho` | Todos |
 | 5 | Dono do **Insertion Sort** das mãos e da lista encadeada de cartas (`src/cards/lista_cartas.*`) | Rafael e Arthur | O README prevê Insertion Sort para ordenar as mãos, e hoje ninguém o implementou | Requisito da disciplina |
-| 6 | Dono de `adversarios.*` | Grupo | A conversa indica o Rafael; o README ainda lista adversários com o Peixoto. Atualizar o README | IA |
-| 7 | 3 confrontos (conceito v0.2) ou 5 (ideia do Matheus no Discord) | Arthur e Rafael | Ficar com 3 na v1 | Torneio |
+| 6 | Dono de `adversarios.*` | Grupo | **[Decidido]** O Rafael é o dono da IA. Ela fica em `src/gameplay/poker_ai*` e a ponte com a mão em `src/core/mao_ia.*`; os placeholders `adversarios.*` foram removidos e o README já lista o Rafael na IA | — |
+| 7 | 3 confrontos (conceito v0.2) ou 5 (ideia do Matheus no Discord) | Arthur e Rafael | **[Decidido]** 3 confrontos na v1, como no conceito v0.2 (`TORNEIO_CONFRONTOS`). Mais confrontos ficam para a visão futura | — |
 | 8 | Padrão C do projeto | Grupo | C11 com `-Wall -Wextra -Wpedantic` | Build |
-| 9 | Makefile único (jogo + testes + demos) | Arthur | Um só `Makefile` na raiz, com alvo do jogo e alvos de teste | Build |
+| 9 | Makefile único (jogo + testes + demos) | Arthur | **[Decidido]** Um só `Makefile` na raiz, com `make jogo`, `make test` e as demos | — |
 | 10 | Funcionamento definitivo do ás na manga | Gabriel | Ver 5.1 | Trapaças |
 | 11 | Valores a balancear, listados no conceito v0.2 (seção 10): valores e frequência de aumento dos blinds, probabilidades-base de descoberta, suspeita acrescentada por tentativa, redução da suspeita após sobreviver à roleta, balas adicionadas por punição, balas removidas por vitória, penalidade financeira ao ser descoberto, limite de recuperações por falência, duração da embriaguez | Grupo | Deixar como constantes fáceis de ajustar e decidir testando | Balanceamento |
 
@@ -269,7 +267,7 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 | --- | --- | --- | --- | --- |
 | **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes (PR #5); revisão e merge dos PRs #1, #2 e #6; testes do baralho ligados ao `make test`; loop da mão com testes (`src/core/mao.*`); fila de eventos para a UI com testes (`src/core/eventos.*`); controlador da partida com testes (`src/core/partida.*`), com o perfil da IA de cada confronto; mesa jogável de ponta a ponta, com o `jogo.c` ligado à `Partida` e a interface em texto cru de teste (3.4) | Integrar as trapaças e a roleta à partida; atualizar o README; revisar e mesclar os PRs | Peixoto, para as trapaças e a roleta |
 | **Júlia** | Motor de pôquer (`src/poker`) | Avaliação, apostas e pote com testes; correções do review aplicadas (PR #1, já na `develop`); contrato do motor escrito em `poker.h`: fases, `poker_start_hand` e `poker_settle` (PR #6, já na `develop`) | Decidir com o Gabriel os custos no meio da mão (5.2); newline final em `src/poker/poker.c` | Decisões do Gabriel sobre custos |
-| **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/adversarios.*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, já na `develop`); motor de decisão da IA com os 3 perfis e testes, em `src/gameplay/poker_ai*` (PR #7, já na `develop`); ponte entre a `Mao` e a IA com teste, em `src/core/mao_ia.*` (PR #10, já na `develop`) | Operações novas do baralho para as trapaças (5.3); Insertion Sort das mãos (pendência 5); ajuste fino da IA jogando | Decisões do Gabriel sobre trapaças |
+| **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/poker_ai*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, já na `develop`); motor de decisão da IA com os 3 perfis e testes, em `src/gameplay/poker_ai*` (PR #7, já na `develop`); ponte entre a `Mao` e a IA com teste, em `src/core/mao_ia.*` (PR #10, já na `develop`) | Operações novas do baralho para as trapaças (5.3); Insertion Sort das mãos (pendência 5); ajuste fino da IA jogando | Decisões do Gabriel sobre trapaças |
 | **Gabriel** | Mecânicas (`src/gameplay/trapacas.*`, `probabilidade.*`, `progressao.*`) | Lista de mecânicas com proposta de implementação | Fechar as pendências 1, 2 e 10; implementar trapaças, chance de descoberta e suspeita individual; roleta russa e balas | Loop da mão do Arthur |
 | **Matheus** | Interface (`src/ui`) | Ideias de mecânicas no grupo | Telas da Raylib no lugar do texto de teste (mesa, cartas, fichas), seguindo o contrato de 3.4; animações a partir dos eventos de 3.3 (distribuir, apostar, trapaça, roleta); efeitos de tensão; decidir Raylib x SDL | Confirmar a lista de eventos (3.3). A partida já roda, então não depende mais do Arthur |
 

@@ -1,42 +1,55 @@
 # Dead Man's Bluff
 
-Roguelike de pôquer desenvolvido em C com Raylib para a disciplina de Algoritmos e Estruturas de Dados (AED).
+Pôquer Texas Hold'em single-player em que trapacear faz parte da estratégia, desenvolvido em C com Raylib para a disciplina de Algoritmos e Estruturas de Dados (AED).
 
 > **Estado atual:** motor de pôquer heads-up implementado, com testes de console e demonstração Raylib, tela inicial do jogo com o loop principal, lógica do torneio, loop da mão, IA dos adversários e uma mesa jogável de ponta a ponta com interface de teste. Trapaças, roleta e a interface gráfica definitiva ainda estão em desenvolvimento.
 
 ## Sobre o jogo
 
-O jogador enfrenta adversários em diferentes mesas de pôquer, aumentando progressivamente as apostas (*stakes*) até alcançar o chefe final. O diferencial é a possibilidade de recorrer a ações ilegais para virar o jogo, ao custo de atrair suspeita e correr o risco de ser descoberto.
+O jogo é Texas Hold'em **1 contra 1 (heads-up)**. O jogador enfrenta três adversários em um **torneio** de três confrontos: o Agressivo, o Medroso e o Desconfiado. Ele começa com 2.000 fichas e leva o saldo de um confronto para o seguinte, enquanto os adversários entram com 2.000, 4.000 e 8.000 fichas. Os blinds sobem a cada poucas mãos para a partida não se arrastar e recomeçam em cada confronto.
+
+Ganhar as mãos importa, mas o desafio é sobreviver às consequências de trapacear: a **suspeita** de cada adversário e a **roleta russa**, acionada quando o jogador é descoberto ou perde todas as fichas.
 
 ## Inspiração
 
 A atmosfera é inspirada em **007 — Cassino Royale**: mesas de alto risco, tensão psicológica e blefe. O universo, os personagens e a história são próprios do projeto.
 
-## Mecânicas planejadas
+## Mecânicas
 
-- Partidas de pôquer contra adversários com comportamentos diferentes.
-- Aumento progressivo de stakes ao longo das mesas, até o chefe final.
-- Ações ilegais: roubar fichas, marcar cartas, subornar o dealer, ameaçar e envenenar adversários.
-- Resultado das ações ilegais dependente de probabilidades e das habilidades do jogador.
-- Gerenciamento de suspeita.
-- Progressão roguelike com melhorias de habilidades.
+**Já implementadas**
+
+- Texas Hold'em heads-up com apostas, avaliação de mãos e pote.
+- Torneio de três confrontos, com saldo acumulado, blinds crescentes e recuperação após falência.
+- Três adversários com comportamentos diferentes, que usam um único motor de decisão com parâmetros próprios e podem ficar embriagados.
+
+**Em desenvolvimento**
+
+- Ações ilegais, que custam fichas e saem de circulação: embriagar o adversário (*spike his drink*), espelho ou cúmplice, ás na manga, suborno do dealer e marcar carta.
+- Chance de ser descoberto, que depende do risco da ação, da suspeita acumulada e da vigilância do adversário.
+- Suspeita individual por adversário.
+- Roleta russa com revólver de seis câmaras, cujas balas persistem durante o torneio.
+- Interface gráfica definitiva, com mesa, cartas, fichas e animações.
+
+**Visão futura, fora da primeira versão**
+
+- Elementos roguelike, novos adversários, eventos aleatórios, mais trapaças e sistemas de progressão.
 
 ## Tecnologias e estruturas de dados previstas
 
 - Linguagem **C**.
 - Biblioteca **Raylib** para a parte gráfica.
-- **Listas simplesmente encadeadas** para o gerenciamento das cartas.
+- **Listas simplesmente encadeadas** para o gerenciamento das cartas, com o baralho em `src/cards/deck.c`.
 - **Insertion Sort** para a ordenação das mãos.
-- Algoritmos próprios para probabilidades e decisões dos adversários.
+- Algoritmos próprios para as probabilidades e para as decisões dos adversários, como a estimativa de equidade por Monte Carlo.
 
 ## Equipe e responsabilidades
 
 | Integrante | Área | Responsabilidades |
 | --- | --- | --- |
-| Arthur | Game Engine e arquitetura | Loop principal, gerenciamento de estados, sistema de turnos, integração entre os módulos |
+| Arthur | Game Engine e arquitetura | Loop principal, estados, torneio, loop da mão, fila de eventos, integração entre os módulos e revisão dos PRs |
 | Júlia | Poker Engine | Regras do pôquer, avaliação das mãos, sistema de apostas, comparação de combinações e determinação dos vencedores |
-| Rafael | Cartas e estruturas de dados | Listas simplesmente encadeadas, gerenciamento do baralho, embaralhamento e distribuição, compra, descarte e ordenação das cartas |
-| Peixoto | Mecânicas e progressão | Ações ilegais, sistema de probabilidades, gerenciamento de suspeita, adversários e progressão roguelike |
+| Rafael | Cartas, estruturas de dados e IA | Listas simplesmente encadeadas, gerenciamento do baralho, embaralhamento e distribuição, compra, descarte e ordenação das cartas, e a IA dos três adversários |
+| Peixoto | Mecânicas | Ações ilegais, probabilidades de descoberta, suspeita e roleta russa |
 | Matheus | Interface gráfica | Interface com Raylib, menus e telas, renderização de cartas e fichas, interações e animações |
 
 ## Estrutura de pastas
@@ -49,10 +62,10 @@ Dead-Man-s-Bluff/
 ├── examples/      # Demonstrações de console e Raylib
 ├── src/
 │   ├── main.c
-│   ├── core/       # Engine: loop, estados e turnos
+│   ├── core/       # Engine: loop, torneio, mão, partida e eventos
 │   ├── cards/      # Lista encadeada de cartas e baralho
 │   ├── poker/      # Regras, avaliação de mãos e apostas
-│   ├── gameplay/   # Trapaças, probabilidades, adversários e progressão
+│   ├── gameplay/   # IA dos adversários, trapaças, probabilidades e suspeita
 │   └── ui/         # Interface gráfica e animações (Raylib)
 └── assets/
     ├── images/
@@ -65,7 +78,7 @@ Dead-Man-s-Bluff/
 | `src/core/` | Núcleo do jogo e integração entre os módulos |
 | `src/cards/` | Estruturas de dados das cartas e gerenciamento do baralho |
 | `src/poker/` | Motor de pôquer e sistema de apostas |
-| `src/gameplay/` | Mecânicas de trapaça, probabilidades, adversários e progressão |
+| `src/gameplay/` | IA dos adversários, mecânicas de trapaça, probabilidades e suspeita |
 | `src/ui/` | Telas, menus, renderização e animações |
 | `assets/` | Imagens, sons e fontes |
 
