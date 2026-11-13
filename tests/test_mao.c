@@ -1,5 +1,7 @@
 #include "core/mao.h"
 
+#include "cards/lista_cartas.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -82,6 +84,59 @@ static unsigned vencedores_esperados(const Mao *mao)
 static PokerChips soma_das_fichas(const Mao *mao)
 {
     return mao->mesa.player[0].chips + mao->mesa.player[1].chips;
+}
+
+static bool mesma_carta(PokerCard a, PokerCard b)
+{
+    return a.rank == b.rank && a.suit == b.suit;
+}
+
+static bool aparece_uma_vez(const PokerCard *cartas, size_t quantidade, PokerCard carta)
+{
+    size_t vezes = 0;
+
+    for (size_t i = 0; i < quantidade; i++) {
+        if (mesma_carta(cartas[i], carta)) {
+            vezes++;
+        }
+    }
+
+    return vezes == 1;
+}
+
+static void conferir_cartas_ordenadas(const Mao *mao)
+{
+    for (int assento = 0; assento < 2; assento++) {
+        PokerCard saida[MAO_CARTAS_ORDENADAS];
+        size_t esperadas = 2 + mao->cartas_no_board;
+
+        CHECK(mao_cartas_ordenadas(mao, assento, saida) == esperadas);
+
+        for (size_t i = 1; i < esperadas; i++) {
+            CHECK(lista_cartas_comparar(saida[i - 1], saida[i]) > 0);
+        }
+
+        CHECK(aparece_uma_vez(saida, esperadas, mao->cartas[assento][0]));
+        CHECK(aparece_uma_vez(saida, esperadas, mao->cartas[assento][1]));
+
+        for (size_t i = 0; i < mao->cartas_no_board; i++) {
+            CHECK(aparece_uma_vez(saida, esperadas, mao->board[i]));
+        }
+
+        if (mao->cartas_no_board >= 3) {
+            PokerHandValue pelas_cartas;
+            PokerHandValue pela_ordenada;
+
+            CHECK(poker_evaluate_holdem(
+                      mao->cartas[assento],
+                      mao->board,
+                      mao->cartas_no_board,
+                      &pelas_cartas
+                  ) == POKER_OK);
+            CHECK(poker_evaluate(saida, esperadas, &pela_ordenada) == POKER_OK);
+            CHECK(poker_compare(&pelas_cartas, &pela_ordenada) == 0);
+        }
+    }
 }
 
 static void conferir_showdown_completo(
@@ -269,23 +324,27 @@ static void test_mao_ate_o_river_sem_aumentos(void)
 
         CHECK(mao.mesa.street == POKER_FLOP);
         CHECK(mao.cartas_no_board == 3 && mao.baralho.count == 44);
+        conferir_cartas_ordenadas(&mao);
         CHECK(mao.mesa.actor == 1 - torneio.dealer);
         CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
         CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
 
         CHECK(mao.mesa.street == POKER_TURN);
         CHECK(mao.cartas_no_board == 4 && mao.baralho.count == 42);
+        conferir_cartas_ordenadas(&mao);
         CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
         CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
 
         CHECK(mao.mesa.street == POKER_RIVER);
         CHECK(mao.cartas_no_board == 5 && mao.baralho.count == 40);
+        conferir_cartas_ordenadas(&mao);
         CHECK(mao.situacao == MAO_EM_ANDAMENTO);
         CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
         CHECK(mao.situacao == MAO_EM_ANDAMENTO);
         CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
 
         conferir_showdown_completo(&mao, 4000, POKER_RIVER);
+        conferir_cartas_ordenadas(&mao);
         CHECK(mao.resultado.pot == 40);
 
         vencedores = mao.resultado.winners;
@@ -461,6 +520,72 @@ static void test_liberar_mao_abandonada(void)
     mao_liberar(&mao);
 }
 
+static void test_cartas_ordenadas_recusa_pedidos_invalidos(void)
+{
+    Torneio torneio;
+    Mao vazia = {0};
+    Mao mao = {0};
+    PokerCard saida[MAO_CARTAS_ORDENADAS];
+    PokerCard marca = {99, POKER_CLUBS};
+
+    for (size_t i = 0; i < MAO_CARTAS_ORDENADAS; i++) {
+        saida[i] = marca;
+    }
+
+    CHECK(mao_cartas_ordenadas(&vazia, TORNEIO_ASSENTO_JOGADOR, saida) == 0);
+    CHECK(mao_cartas_ordenadas(NULL, TORNEIO_ASSENTO_JOGADOR, saida) == 0);
+
+    torneio_iniciar(&torneio);
+    srand(3);
+    CHECK(mao_iniciar(&mao, &torneio));
+
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_JOGADOR, NULL) == 0);
+    CHECK(mao_cartas_ordenadas(&mao, -1, saida) == 0);
+    CHECK(mao_cartas_ordenadas(&mao, 2, saida) == 0);
+
+    for (size_t i = 0; i < MAO_CARTAS_NO_BOARD; i++) {
+        mao.board[i] = (PokerCard){8 + (int)i, POKER_HEARTS};
+    }
+
+    mao.cartas_no_board = MAO_CARTAS_NO_BOARD + 1;
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_JOGADOR, saida) == 0);
+    mao.cartas_no_board = 0;
+
+    for (size_t i = 0; i < MAO_CARTAS_ORDENADAS; i++) {
+        CHECK(mesma_carta(saida[i], marca));
+    }
+
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_JOGADOR, saida) == 2);
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_ADVERSARIO, saida) == 2);
+
+    mao_liberar(&mao);
+    CHECK(mao.situacao == MAO_VAZIA);
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_JOGADOR, saida) == 0);
+}
+
+static void test_cartas_ordenadas_com_mao_invalida_nao_vaza(void)
+{
+    Torneio torneio;
+    Mao mao = {0};
+    PokerCard saida[MAO_CARTAS_ORDENADAS];
+
+    torneio_iniciar(&torneio);
+    srand(5);
+    CHECK(mao_iniciar(&mao, &torneio));
+
+    mao.cartas[TORNEIO_ASSENTO_JOGADOR][1].rank = 1;
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_JOGADOR, saida) == 0);
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_ADVERSARIO, saida) == 2);
+
+    mao.cartas[TORNEIO_ASSENTO_JOGADOR][1].rank = 7;
+    mao.cartas_no_board = 1;
+    mao.board[0].rank = 99;
+    CHECK(mao_cartas_ordenadas(&mao, TORNEIO_ASSENTO_JOGADOR, saida) == 0);
+
+    mao.cartas_no_board = 0;
+    mao_liberar(&mao);
+}
+
 static PokerAction escolher_acao_aleatoria(const Mao *mao, unsigned *semente)
 {
     PokerLegalActions legais;
@@ -490,6 +615,8 @@ static PokerAction escolher_acao_aleatoria(const Mao *mao, unsigned *semente)
 static void jogar_mao_aleatoria(Mao *mao, unsigned *semente)
 {
     for (int acoes = 0; acoes < LIMITE_DE_ACOES; acoes++) {
+        conferir_cartas_ordenadas(mao);
+
         if (mao->situacao != MAO_EM_ANDAMENTO) {
             return;
         }
@@ -571,6 +698,8 @@ int main(void)
     test_stack_menor_que_o_blind_resolve_ao_iniciar();
     test_stack_entre_small_e_big_blind_exige_resposta();
     test_liberar_mao_abandonada();
+    test_cartas_ordenadas_recusa_pedidos_invalidos();
+    test_cartas_ordenadas_com_mao_invalida_nao_vaza();
     test_torneio_completo_com_acoes_aleatorias();
     puts("OK: mao completa com baralho, motor e torneio (desistencia, river, all-in em cada rua, stacks curtos e torneios inteiros).");
     return EXIT_SUCCESS;

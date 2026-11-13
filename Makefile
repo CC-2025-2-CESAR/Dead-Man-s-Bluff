@@ -9,8 +9,10 @@ TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
 EVENTOS_SRC = src/core/eventos.c
 EVENTOS_HEADERS = src/core/eventos.h
-MAO_SRC = src/core/mao.c $(EVENTOS_SRC)
-MAO_HEADERS = src/core/mao.h $(EVENTOS_HEADERS)
+LISTA_CARTAS_SRC = src/cards/lista_cartas.c
+LISTA_CARTAS_HEADERS = src/cards/lista_cartas.h
+MAO_SRC = src/core/mao.c $(EVENTOS_SRC) $(LISTA_CARTAS_SRC)
+MAO_HEADERS = src/core/mao.h $(EVENTOS_HEADERS) $(LISTA_CARTAS_HEADERS)
 MAO_IA_SRC = src/core/mao_ia.c
 MAO_IA_HEADERS = src/core/mao_ia.h
 PARTIDA_SRC = src/core/partida.c
@@ -39,13 +41,16 @@ build/test_torneio: tests/test_torneio.c $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(POK
 $(DECK_TESTS): build/%: tests/%.c $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) tests/$*.c $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
+build/test_lista_cartas: tests/test_lista_cartas.c $(LISTA_CARTAS_SRC) $(LISTA_CARTAS_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_lista_cartas.c $(LISTA_CARTAS_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
+
 build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_mao.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
 build/test_eventos: tests/test_eventos.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_eventos.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DECK_TESTS) build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia build/test_partida
+test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DECK_TESTS) build/test_lista_cartas build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia build/test_partida
 	./build/test_poker
 	./build/test_torneio
 	./build/test_mao
@@ -53,6 +58,7 @@ test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DE
 	./build/test_deck
 	./build/test_edge_cases
 	./build/test_integration
+	./build/test_lista_cartas
 	./build/test_poker_ai
 	./build/test_ai_integration
 	./build/test_tabelas_config

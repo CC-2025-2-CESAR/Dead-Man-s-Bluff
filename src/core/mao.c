@@ -1,5 +1,7 @@
 #include "core/mao.h"
 
+#include "cards/lista_cartas.h"
+
 /**
  * Coloca um evento na fila da mão, se houver uma. A mão não depende de a
  * fila ter espaço: se ela estiver cheia, o evento se perde e a fila conta.
@@ -342,4 +344,30 @@ void mao_liberar(Mao *mao)
     if (mao->situacao == MAO_EM_ANDAMENTO) {
         mao->situacao = MAO_VAZIA;
     }
+}
+
+size_t mao_cartas_ordenadas(
+    const Mao *mao,
+    int assento,
+    PokerCard saida[MAO_CARTAS_ORDENADAS]
+)
+{
+    if (mao == NULL || saida == NULL || mao->situacao == MAO_VAZIA ||
+        (assento != TORNEIO_ASSENTO_JOGADOR &&
+         assento != TORNEIO_ASSENTO_ADVERSARIO) ||
+        mao->cartas_no_board > MAO_CARTAS_NO_BOARD) {
+        return 0;
+    }
+
+    ListaCartas lista = {0};
+    size_t escritas = 0;
+
+    if (lista_cartas_inserir_vetor(&lista, mao->cartas[assento], 2) &&
+        lista_cartas_inserir_vetor(&lista, mao->board, mao->cartas_no_board)) {
+        lista_cartas_ordenar(&lista, ORDEM_DECRESCENTE);
+        escritas = lista_cartas_copiar(&lista, saida, MAO_CARTAS_ORDENADAS);
+    }
+
+    lista_cartas_liberar(&lista);
+    return escritas;
 }

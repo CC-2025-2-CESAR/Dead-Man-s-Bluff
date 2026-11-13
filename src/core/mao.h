@@ -10,6 +10,7 @@
 #include "poker.h"
 
 #define MAO_CARTAS_NO_BOARD 5
+#define MAO_CARTAS_ORDENADAS (2 + MAO_CARTAS_NO_BOARD)
 
 /**
  * Situação de uma mão.
@@ -124,5 +125,25 @@ bool mao_registrar_no_torneio(Mao *mao, Torneio *torneio);
  * @param mao mão a liberar.
  */
 void mao_liberar(Mao *mao);
+
+/**
+ * Ordena as cartas de um assento, as duas da mão mais as do board já
+ * reveladas, da maior para a menor, com o Insertion Sort da lista encadeada
+ * de cartas (ver cards/lista_cartas.h). Não altera a mão.
+ *
+ * Quem chama decide o que mostrar: as cartas do adversário só podem aparecer
+ * no showdown.
+ *
+ * @param mao mão já iniciada; uma Mao vazia não tem cartas.
+ * @param assento TORNEIO_ASSENTO_JOGADOR ou TORNEIO_ASSENTO_ADVERSARIO.
+ * @param saida recebe as cartas ordenadas.
+ * @return quantas cartas foram escritas, que são as duas da mão mais as do
+ * board; 0 se a mão está vazia, o assento é inválido ou faltou memória.
+ */
+size_t mao_cartas_ordenadas(
+    const Mao *mao,
+    int assento,
+    PokerCard saida[MAO_CARTAS_ORDENADAS]
+);
 
 #endif

@@ -254,6 +254,8 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     bool terminou = mao->situacao == MAO_ENCERRADA || mao->situacao == MAO_REGISTRADA;
     char linha[TAMANHO_LINHA];
     char cartas[64];
+    PokerCard ordenadas[MAO_CARTAS_ORDENADAS];
+    size_t quantidade;
     int y = 24;
 
     BeginDrawing();
@@ -278,6 +280,11 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
 
     texto_das_cartas(mao->board, (int)mao->cartas_no_board, cartas, sizeof cartas);
     snprintf(linha, sizeof linha, "BOARD: %s", mao->cartas_no_board > 0 ? cartas : "-");
+    desenhar_linha(linha, &y, COR_TEXTO);
+
+    quantidade = mao_cartas_ordenadas(mao, TORNEIO_ASSENTO_JOGADOR, ordenadas);
+    texto_das_cartas(ordenadas, (int)quantidade, cartas, sizeof cartas);
+    snprintf(linha, sizeof linha, "SUA MÃO ORDENADA: %s", quantidade > 0 ? cartas : "-");
     desenhar_linha(linha, &y, COR_TEXTO);
 
     if (terminou && mao->resultado.showdown) {
