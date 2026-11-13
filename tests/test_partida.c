@@ -318,6 +318,112 @@ static void test_stack_curto_resolve_a_mao_ao_iniciar(void)
     partida_encerrar(&partida);
 }
 
+static void test_comandos_e_ajuste_de_aposta(void)
+{
+    Partida partida = {0};
+    PokerLegalActions legais;
+
+    CHECK(partida_iniciar(&partida, 11));
+    CHECK(partida_comando_jogador(NULL, COMANDO_DESISTIR, 0) == POKER_ERR_ARGUMENT);
+    CHECK(partida_comando_jogador(&partida, COMANDO_NENHUM, 0) == POKER_ERR_ARGUMENT);
+    CHECK(partida_ajustar_aposta(NULL, 0, 0) == 0);
+
+    CHECK(partida_acoes_legais(&partida, &legais) == POKER_OK);
+    CHECK(legais.raise && legais.min_total == 40 && legais.max_total == 2000);
+
+    CHECK(partida_ajustar_aposta(&partida, 0, 0) == 40);
+    CHECK(partida_ajustar_aposta(&partida, 0, 5) == 40);
+    CHECK(partida_ajustar_aposta(&partida, 40, 0) == 40);
+    CHECK(partida_ajustar_aposta(&partida, 40, 1) == 60);
+    CHECK(partida_ajustar_aposta(&partida, 100, 3) == 160);
+    CHECK(partida_ajustar_aposta(&partida, 100, -1) == 80);
+    CHECK(partida_ajustar_aposta(&partida, 100, -50) == 40);
+    CHECK(partida_ajustar_aposta(&partida, 100, 5000) == 2000);
+    CHECK(partida_ajustar_aposta(&partida, 3000, 0) == 2000);
+
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 25) == POKER_ERR_ACTION);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 2001) == POKER_ERR_ACTION);
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
+    CHECK(partida.mao.mesa.player[0].chips == 1990);
+
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 60) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].street_bet == 60);
+    CHECK(partida.mao.mesa.player[0].chips == 1940);
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO);
+
+    CHECK(partida_ajustar_aposta(&partida, 60, 1) == 0);
+    CHECK(partida_comando_jogador(&partida, COMANDO_PASSAR_OU_PAGAR, 0) == POKER_ERR_TURN);
+    partida_encerrar(&partida);
+    CHECK(partida_comando_jogador(&partida, COMANDO_ALL_IN, 0) == POKER_ERR_STATE);
+
+    CHECK(partida_iniciar(&partida, 12));
+    CHECK(partida_comando_jogador(&partida, COMANDO_ALL_IN, 0) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].chips == 0);
+    partida_encerrar(&partida);
+
+    CHECK(partida_iniciar(&partida, 13));
+    CHECK(partida_comando_jogador(&partida, COMANDO_DESISTIR, 0) == POKER_OK);
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(partida.torneio.fichas_jogador == 1990);
+    partida_encerrar(&partida);
+}
+
+static void test_passar_pagar_e_apostar_sem_aposta_anterior(void)
+{
+    Partida partida = {0};
+    PokerChips stacks[2] = {2000, 2000};
+    EventoJogo evento;
+    bool viu_check = false;
+
+    CHECK(partida_iniciar(&partida, 14));
+    CHECK(poker_start_hand(&partida.mao.mesa, stacks, TORNEIO_ASSENTO_ADVERSARIO, 10, 20) == POKER_OK);
+    CHECK(poker_act(&partida.mao.mesa, TORNEIO_ASSENTO_ADVERSARIO, PAGAR) == POKER_OK);
+    partida.situacao = PARTIDA_VEZ_DO_JOGADOR;
+    fila_eventos_iniciar(&partida.eventos);
+
+    CHECK(partida.mao.mesa.actor == TORNEIO_ASSENTO_JOGADOR);
+    CHECK(partida_comando_jogador(&partida, COMANDO_PASSAR_OU_PAGAR, 0) == POKER_OK);
+    CHECK(partida.mao.cartas_no_board == 3);
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
+
+    while (fila_eventos_retirar(&partida.eventos, &evento)) {
+        if (evento.tipo == EVENTO_ACAO && evento.acao.acao == POKER_CHECK) {
+            viu_check = true;
+        }
+    }
+
+    CHECK(viu_check);
+    CHECK(partida_ajustar_aposta(&partida, 0, 0) == 20);
+    CHECK(partida_ajustar_aposta(&partida, 20, 2) == 60);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 19) == POKER_ERR_ACTION);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 40) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].street_bet == 40);
+    partida_encerrar(&partida);
+}
+
+static void test_adversario_all_in_impede_aumentar(void)
+{
+    Partida partida = {0};
+    PokerChips stacks[2] = {2000, 15};
+
+    CHECK(partida_iniciar(&partida, 15));
+    CHECK(poker_start_hand(&partida.mao.mesa, stacks, TORNEIO_ASSENTO_JOGADOR, 10, 20) == POKER_OK);
+    CHECK(partida.mao.mesa.actor == TORNEIO_ASSENTO_JOGADOR);
+    partida.situacao = PARTIDA_VEZ_DO_JOGADOR;
+
+    CHECK(partida_ajustar_aposta(&partida, 0, 0) == 0);
+    CHECK(partida_ajustar_aposta(&partida, 100, 1) == 0);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 100) == POKER_ERR_ACTION);
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
+
+    CHECK(partida_comando_jogador(&partida, COMANDO_PASSAR_OU_PAGAR, 0) == POKER_OK);
+    CHECK(partida.mao.mesa.phase == POKER_SETTLED);
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA ||
+          partida.situacao == PARTIDA_JOGADOR_FALIDO ||
+          partida.situacao == PARTIDA_CONFRONTO_VENCIDO);
+    partida_encerrar(&partida);
+}
+
 static void test_partidas_inteiras(void)
 {
     struct {
@@ -434,6 +540,9 @@ int main(void)
     test_recusas_de_turno_e_de_estado();
     test_desistencia_registra_no_torneio_e_continua();
     test_stack_curto_resolve_a_mao_ao_iniciar();
+    test_comandos_e_ajuste_de_aposta();
+    test_passar_pagar_e_apostar_sem_aposta_anterior();
+    test_adversario_all_in_impede_aumentar();
     test_partidas_inteiras();
     test_mesma_semente_reproduz_a_partida();
     test_sementes_diferentes_dao_partidas_diferentes();

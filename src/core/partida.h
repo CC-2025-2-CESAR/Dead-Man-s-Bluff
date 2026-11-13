@@ -35,6 +35,24 @@ typedef enum {
 } PartidaSituacao;
 
 /**
+ * O que o jogador pede na sua vez. A interface só traduz teclas ou botões
+ * para um destes comandos; quem decide o que ele significa é o core.
+ *
+ * COMANDO_NENHUM: o jogador não pediu nada.
+ * COMANDO_DESISTIR: desistir da mão.
+ * COMANDO_PASSAR_OU_PAGAR: passar se não há aposta a pagar, pagar se há.
+ * COMANDO_APOSTAR: apostar ou aumentar até um total escolhido.
+ * COMANDO_ALL_IN: apostar todas as fichas.
+ */
+typedef enum {
+    COMANDO_NENHUM = 0,
+    COMANDO_DESISTIR,
+    COMANDO_PASSAR_OU_PAGAR,
+    COMANDO_APOSTAR,
+    COMANDO_ALL_IN
+} ComandoJogador;
+
+/**
  * Partida completa: torneio, mão atual, fila de eventos para a interface e
  * a IA do adversário.
  *
@@ -93,6 +111,36 @@ void partida_encerrar(Partida *partida);
  * motor, e uma ação recusada não altera nada.
  */
 PokerStatus partida_agir_jogador(Partida *partida, PokerAction acao);
+
+/**
+ * Traduz um comando do jogador para uma ação do motor e a aplica, como
+ * partida_agir_jogador.
+ *
+ * @param partida partida em PARTIDA_VEZ_DO_JOGADOR.
+ * @param comando o que o jogador pediu.
+ * @param total para COMANDO_APOSTAR, o total que o jogador quer ter colocado
+ * na rodada (use partida_ajustar_aposta para escolher um valor válido); nos
+ * demais comandos é ignorado.
+ * @return POKER_OK se a ação foi aplicada; POKER_ERR_ARGUMENT para
+ * COMANDO_NENHUM; POKER_ERR_ACTION se o comando não vale agora (por exemplo,
+ * apostar sem poder, ou um total fora dos limites); os demais códigos são
+ * os de partida_agir_jogador.
+ */
+PokerStatus partida_comando_jogador(Partida *partida, ComandoJogador comando, PokerChips total);
+
+/**
+ * Move o total de uma aposta ou aumento em passos de um big blind, sempre
+ * dentro dos limites legais. Um total que ainda não é válido (como zero)
+ * vira o menor total permitido.
+ *
+ * @param partida partida em PARTIDA_VEZ_DO_JOGADOR.
+ * @param atual total escolhido até agora.
+ * @param passos quantos big blinds somar; negativo para diminuir.
+ * @return o novo total, entre o mínimo e o máximo permitidos; 0 se o
+ * jogador não pode apostar agora (não é a vez dele ou o adversário já está
+ * all-in).
+ */
+PokerChips partida_ajustar_aposta(const Partida *partida, PokerChips atual, int passos);
 
 /**
  * Pede a ação à IA do confronto atual e a aplica. A interface chama esta
