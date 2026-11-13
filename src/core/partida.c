@@ -139,6 +139,67 @@ PokerStatus partida_agir_jogador(Partida *partida, PokerAction acao)
     return atualizar_situacao(partida) ? POKER_OK : POKER_ERR_STATE;
 }
 
+PokerStatus partida_comando_jogador(Partida *partida, ComandoJogador comando, PokerChips total)
+{
+    PokerLegalActions legais;
+    PokerStatus status = partida_acoes_legais(partida, &legais);
+    PokerAction acao;
+
+    if (status != POKER_OK) {
+        return status;
+    }
+
+    switch (comando) {
+        case COMANDO_DESISTIR:
+            acao = (PokerAction){POKER_FOLD, 0};
+            break;
+
+        case COMANDO_PASSAR_OU_PAGAR:
+            acao = (PokerAction){legais.check ? POKER_CHECK : POKER_CALL, 0};
+            break;
+
+        case COMANDO_APOSTAR:
+            if (!legais.bet && !legais.raise) {
+                return POKER_ERR_ACTION;
+            }
+
+            acao = (PokerAction){legais.bet ? POKER_BET : POKER_RAISE, total};
+            break;
+
+        case COMANDO_ALL_IN:
+            acao = (PokerAction){POKER_ALL_IN, 0};
+            break;
+
+        default:
+            return POKER_ERR_ARGUMENT;
+    }
+
+    return partida_agir_jogador(partida, acao);
+}
+
+PokerChips partida_ajustar_aposta(const Partida *partida, PokerChips atual, int passos)
+{
+    PokerLegalActions legais;
+    PokerChips total;
+
+    if (partida_acoes_legais(partida, &legais) != POKER_OK ||
+        (!legais.bet && !legais.raise)) {
+        return 0;
+    }
+
+    if (atual < legais.min_total) {
+        return legais.min_total;
+    }
+
+    total = atual + (PokerChips)passos * partida->mao.mesa.big_blind;
+
+    if (total < legais.min_total) {
+        return legais.min_total;
+    }
+
+    return total > legais.max_total ? legais.max_total : total;
+}
+
 PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_out)
 {
     PokerStatus status;

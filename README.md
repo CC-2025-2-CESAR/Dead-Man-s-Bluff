@@ -2,7 +2,7 @@
 
 Roguelike de pôquer desenvolvido em C com Raylib para a disciplina de Algoritmos e Estruturas de Dados (AED).
 
-> **Estado atual:** motor de pôquer heads-up implementado, com testes de console e demonstração Raylib, tela inicial do jogo com o loop principal, lógica do torneio e loop da mão. A partida completa ainda está em desenvolvimento.
+> **Estado atual:** motor de pôquer heads-up implementado, com testes de console e demonstração Raylib, tela inicial do jogo com o loop principal, lógica do torneio, loop da mão, IA dos adversários e uma mesa jogável de ponta a ponta com interface de teste. Trapaças, roleta e a interface gráfica definitiva ainda estão em desenvolvimento.
 
 ## Sobre o jogo
 
@@ -81,8 +81,10 @@ O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apos
 - [x] Loop da mão: embaralhar, distribuir, rodadas de apostas, showdown e registro no torneio.
 - [x] Fila de eventos da mão para a interface animar (distribuição, ações, board, showdown e pagamento).
 - [x] IA dos adversários com 3 perfis e ponte para a mão.
-- [x] Controlador da partida: torneio, mão, fila de eventos e IA juntos, com o perfil de cada confronto (ainda não ligado à tela).
-- [ ] Implementação dos demais módulos.
+- [x] Controlador da partida: torneio, mão, fila de eventos e IA juntos, com o perfil de cada confronto.
+- [x] Mesa jogável de ponta a ponta no `make jogo`, com interface de teste em texto cru (o design da mesa é do Matheus).
+- [ ] Trapaças, suspeita e roleta russa.
+- [ ] Interface gráfica definitiva (mesa, cartas, fichas e animações).
 - [ ] Integração e testes.
 
 
@@ -150,7 +152,9 @@ make jogo
 ./build/dead_mans_bluff
 ```
 
-Abre a tela inicial: **W/S** ou as setas navegam e **ENTER** ou **ESPAÇO** confirmam. **Jogar** leva a uma tela provisória da mesa, e **ESC** volta ao menu. **Sair**, ou fechar a janela, encerra o jogo. A partida ainda não está ligada a essa tela.
+Abre a tela inicial: **W/S** ou as setas navegam e **ENTER** ou **ESPAÇO** confirmam. **Jogar** começa o torneio contra os três adversários (Agressivo, Medroso e Desconfiado), e **ESC** volta ao menu. **Sair**, ou fechar a janela, encerra o jogo.
+
+A mesa ainda é um texto cru de teste, sem design, que o Matheus vai substituir. Na sua vez: **F** desiste, **C** passa ou paga, **R** aposta ou aumenta (as setas para cima e para baixo ajustam o valor, em passos de um big blind), **A** vai all-in. **ENTER** ou **ESPAÇO** seguem para a próxima mão. A falência encerra a partida, porque a roleta ainda não existe; **ENTER** recomeça.
 
 No MSYS2 UCRT64, use `mingw32-make jogo` e mantenha `C:\msys64\ucrt64\bin` no `PATH`, pois o executável usa a `libraylib.dll` e a `glfw3.dll` dessa pasta.
 

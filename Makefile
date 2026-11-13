@@ -3,8 +3,8 @@ CPPFLAGS += -Isrc/poker
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -Werror
 POKER_SRC = src/poker/poker.c src/poker/apostas.c
 POKER_HEADERS = src/poker/poker.h src/poker/apostas.h
-JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c
-JOGO_HEADERS = src/core/jogo.h src/ui/interface.h
+JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC)
+JOGO_HEADERS = src/core/jogo.h src/ui/interface.h $(PARTIDA_HEADERS) $(MAO_IA_HEADERS) $(MAO_HEADERS) $(AI_HEADERS) $(TORNEIO_HEADERS) $(DECK_HEADERS) $(POKER_HEADERS)
 TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
 EVENTOS_SRC = src/core/eventos.c
@@ -101,7 +101,7 @@ build/raylib_demo: examples/raylib_demo.c $(POKER_SRC) $(POKER_HEADERS) | build
 raylib-demo: build/raylib_demo
 
 build/dead_mans_bluff: $(JOGO_SRC) $(JOGO_HEADERS) | build
-	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(RAYLIB_CFLAGS) $(LDFLAGS) $(JOGO_SRC) $(RAYLIB_LIBS) $(LDLIBS) -o $@
+	$(CC) $(CPPFLAGS) -Isrc -Isrc/gameplay $(AI_CFLAGS) $(RAYLIB_CFLAGS) $(LDFLAGS) $(JOGO_SRC) $(RAYLIB_LIBS) $(LDLIBS) -lm -o $@
 
 jogo: build/dead_mans_bluff
 
