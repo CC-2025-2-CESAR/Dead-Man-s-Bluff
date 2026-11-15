@@ -36,13 +36,17 @@ typedef enum {
  * O que o jogador fez na tela de configurações em um quadro.
  *
  * movimento: -1 para subir na lista, 1 para descer, 0 se não mexeu.
- * confirmar: pediu para usar a opção destacada.
- * voltar: pediu para voltar ao menu.
+ * confirmar: pediu para usar a opção destacada. Um clique em uma opção a
+ * escolhe e confirma no mesmo quadro.
+ * voltar: pediu para voltar ao menu, pelo teclado ou clicando em Voltar.
+ * apontada: posição da opção sob o mouse, se ele se moveu ou clicou neste
+ * quadro; -1 nos demais casos. Quem recebe passa a destacar essa opção.
  */
 typedef struct {
     int movimento;
     bool confirmar;
     bool voltar;
+    int apontada;
 } EntradaConfiguracoes;
 
 /**

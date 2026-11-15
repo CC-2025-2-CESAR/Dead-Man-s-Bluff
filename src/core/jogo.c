@@ -156,6 +156,9 @@ static EstadoJogo executar_quadro_configuracoes(void)
     if (entrada.voltar)
         return ESTADO_MENU;
 
+    if (entrada.apontada >= 0)
+        selecao_da_resolucao = entrada.apontada;
+
     selecao_da_resolucao = configuracoes_mover_selecao(selecao_da_resolucao, entrada.movimento);
 
     if (entrada.confirmar &&
