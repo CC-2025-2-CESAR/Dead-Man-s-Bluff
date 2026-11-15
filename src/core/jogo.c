@@ -1,3 +1,4 @@
+#include "core/configuracoes.h"
 #include "core/jogo.h"
 #include "core/partida.h"
 #include "ui/interface.h"
@@ -11,6 +12,7 @@
 typedef enum {
     ESTADO_MENU,
     ESTADO_MESA,
+    ESTADO_CONFIGURACOES,
     ESTADO_SAIR
 } EstadoJogo;
 
@@ -30,10 +32,13 @@ typedef struct {
 } Mesa;
 
 static Mesa mesa;
+static Configuracoes configuracoes;
+static int selecao_da_resolucao;
 
 /**
  * Executa um quadro da tela inicial: lê a entrada, desenha o menu e
- * devolve o estado seguinte (continua no menu, vai para a mesa ou sai).
+ * devolve o estado seguinte (continua no menu, vai para a mesa, para as
+ * configurações ou sai).
  */
 static EstadoJogo executar_quadro_menu(OpcaoMenu *opcao)
 {
@@ -44,7 +49,43 @@ static EstadoJogo executar_quadro_menu(OpcaoMenu *opcao)
     if (!confirmou)
         return ESTADO_MENU;
 
-    return *opcao == MENU_JOGAR ? ESTADO_MESA : ESTADO_SAIR;
+    switch (*opcao) {
+        case MENU_JOGAR:
+            return ESTADO_MESA;
+
+        case MENU_CONFIGURACOES:
+            selecao_da_resolucao = configuracoes.resolucao;
+            return ESTADO_CONFIGURACOES;
+
+        case MENU_SAIR:
+        case MENU_TOTAL:
+            break;
+    }
+
+    return ESTADO_SAIR;
+}
+
+/**
+ * Executa um quadro da tela de configurações: move a seleção, aplica a
+ * resolução escolhida se ela cabe no monitor e volta ao menu quando o
+ * jogador pede.
+ */
+static EstadoJogo executar_quadro_configuracoes(void)
+{
+    EntradaConfiguracoes entrada = interface_configuracoes_ler_entrada();
+
+    if (entrada.voltar)
+        return ESTADO_MENU;
+
+    selecao_da_resolucao = configuracoes_mover_selecao(selecao_da_resolucao, entrada.movimento);
+
+    if (entrada.confirmar &&
+        interface_aplicar_resolucao(configuracoes_resolucao(selecao_da_resolucao)))
+        configuracoes_escolher_resolucao(&configuracoes, selecao_da_resolucao);
+
+    interface_configuracoes_desenhar(&configuracoes, selecao_da_resolucao);
+
+    return ESTADO_CONFIGURACOES;
 }
 
 /**
@@ -159,6 +200,7 @@ void jogo_executar(void)
     EstadoJogo estado = ESTADO_MENU;
     OpcaoMenu opcao = MENU_JOGAR;
 
+    configuracoes_iniciar(&configuracoes);
     interface_iniciar();
 
     while (estado != ESTADO_SAIR && !interface_fechar_solicitado()) {
@@ -169,6 +211,10 @@ void jogo_executar(void)
 
             case ESTADO_MESA:
                 estado = executar_quadro_mesa();
+                break;
+
+            case ESTADO_CONFIGURACOES:
+                estado = executar_quadro_configuracoes();
                 break;
 
             case ESTADO_SAIR:

@@ -120,6 +120,10 @@ Quem chama o quê, em ordem:
 | `interface_mesa_limpar_eventos()` | Chamada ao começar uma partida nova |
 | `interface_mesa_desenhar(partida, aposta_escolhida)` | Desenha a mesa lendo a `Partida`, só para leitura |
 | `interface_tempo_do_quadro()` | Duração do quadro, que o `jogo.c` usa para contar a pausa do adversário |
+| `interface_configuracoes_ler_entrada()` e `interface_configuracoes_desenhar(configuracoes, selecionada)` | Tela de configurações, hoje só com a lista de resoluções |
+| `interface_resolucao_cabe(resolucao)` e `interface_aplicar_resolucao(resolucao)` | Dizem se a resolução cabe no monitor e passam a janela para ela, ou para a tela cheia sem bordas |
+
+- **Resolução:** as telas desenham sempre em `LARGURA_TELA` por `ALTURA_TELA` (1280x720), e a interface escala o desenho para a janela real, com faixas nas bordas se a proporção for outra. Telas novas usam essas coordenadas e não precisam saber o tamanho da janela. A lista de resoluções (960x540, 1280x720, 1600x900, 1920x1080 e tela cheia) e a escolha do jogador ficam em `src/core/configuracoes.*`. Uma janela só é oferecida se couber no monitor com a barra de título.
 
 - A interface não decide regra: ela não chama funções de `poker`, `mao` ou `partida` que mudem o estado. Quem faz isso é o `jogo.c`.
 - O que cada comando significa e qual aposta é válida é do core: `partida_comando_jogador` traduz o comando e `partida_ajustar_aposta` mantém o valor dentro dos limites, em passos de um big blind.

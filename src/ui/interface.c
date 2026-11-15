@@ -16,7 +16,10 @@ static const Color COR_OURO = { 212, 175, 55, 255 };
 static const Color COR_TEXTO = { 235, 235, 225, 255 };
 static const Color COR_TEXTO_SUAVE = { 150, 170, 155, 255 };
 
-static const char *ROTULOS_MENU[MENU_TOTAL] = { "JOGAR", "SAIR" };
+static const char *ROTULOS_MENU[MENU_TOTAL] = { "JOGAR", "CONFIGURAÇÕES", "SAIR" };
+
+/** Espaço que a barra de título e a barra de tarefas tiram da altura do monitor. */
+#define MARGEM_VERTICAL_DA_JANELA 80
 
 /**
  * Desenha um texto centralizado na largura da tela.
@@ -31,6 +34,41 @@ static void desenhar_texto_centralizado(const char *texto, int y, int tamanho, C
     int largura = MeasureText(texto, tamanho);
 
     DrawText(texto, (LARGURA_TELA - largura) / 2, y, tamanho, cor);
+}
+
+/**
+ * Monta a câmera que leva o desenho de LARGURA_TELA por ALTURA_TELA para a
+ * janela real: escala igual nos dois eixos e centralizada, deixando faixas
+ * nas bordas se a proporção da janela for outra.
+ */
+static Camera2D camera_da_janela(void)
+{
+    float largura = (float)GetScreenWidth();
+    float altura = (float)GetScreenHeight();
+    float escala_x = largura / LARGURA_TELA;
+    float escala_y = altura / ALTURA_TELA;
+    float escala = escala_x < escala_y ? escala_x : escala_y;
+    Camera2D camera = { 0 };
+
+    camera.zoom = escala;
+    camera.offset = (Vector2){ (largura - LARGURA_TELA * escala) / 2.0f,
+                               (altura - ALTURA_TELA * escala) / 2.0f };
+    return camera;
+}
+
+/** Começa um quadro: limpa a janela e passa a desenhar nas coordenadas de LARGURA_TELA por ALTURA_TELA. */
+static void comecar_desenho(void)
+{
+    BeginDrawing();
+    ClearBackground(COR_FUNDO);
+    BeginMode2D(camera_da_janela());
+}
+
+/** Termina o quadro começado por comecar_desenho. */
+static void terminar_desenho(void)
+{
+    EndMode2D();
+    EndDrawing();
 }
 
 void interface_iniciar(void)
@@ -63,8 +101,7 @@ bool interface_menu_atualizar(OpcaoMenu *selecionada)
 
 void interface_menu_desenhar(OpcaoMenu selecionada)
 {
-    BeginDrawing();
-    ClearBackground(COR_FUNDO);
+    comecar_desenho();
 
     desenhar_texto_centralizado("DEAD MAN'S BLUFF", 150, 88, COR_OURO);
     desenhar_texto_centralizado("um roguelike de pôquer", 255, 28, COR_TEXTO);
@@ -81,7 +118,115 @@ void interface_menu_desenhar(OpcaoMenu selecionada)
 
     desenhar_texto_centralizado("W/S ou setas para navegar  -  ENTER para confirmar", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
 
-    EndDrawing();
+    terminar_desenho();
+}
+
+EntradaConfiguracoes interface_configuracoes_ler_entrada(void)
+{
+    EntradaConfiguracoes entrada = {0, false, false};
+
+    if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+        entrada.movimento = 1;
+    } else if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+        entrada.movimento = -1;
+    }
+
+    entrada.confirmar = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
+    entrada.voltar = IsKeyPressed(KEY_ESCAPE);
+    return entrada;
+}
+
+/** Escreve o nome de uma resolução, como "1280 x 720" ou "TELA CHEIA". */
+static void rotulo_da_resolucao(Resolucao resolucao, char *saida, size_t tamanho)
+{
+    if (resolucao.tela_cheia) {
+        snprintf(saida, tamanho, "TELA CHEIA");
+    } else {
+        snprintf(saida, tamanho, "%d x %d", resolucao.largura, resolucao.altura);
+    }
+}
+
+void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int selecionada)
+{
+    comecar_desenho();
+
+    desenhar_texto_centralizado("CONFIGURAÇÕES", 90, 64, COR_OURO);
+    DrawRectangle((LARGURA_TELA - 320) / 2, 175, 320, 3, COR_OURO);
+    desenhar_texto_centralizado("RESOLUÇÃO", 215, 32, COR_TEXTO);
+
+    for (int i = 0; i < RESOLUCOES_TOTAL; i++) {
+        Resolucao resolucao = configuracoes_resolucao(i);
+        bool cabe = interface_resolucao_cabe(resolucao);
+        bool atual = configuracoes != NULL && i == configuracoes->resolucao;
+        char rotulo[32];
+        char linha[96];
+        int y = 290 + i * 56;
+
+        rotulo_da_resolucao(resolucao, rotulo, sizeof rotulo);
+        snprintf(linha, sizeof linha, "%s%s%s", rotulo,
+                 atual ? "  (atual)" : "",
+                 cabe ? "" : "  (não cabe no monitor)");
+
+        if (i == selecionada) {
+            desenhar_texto_centralizado(TextFormat("> %s <", linha), y, 36,
+                                        cabe ? COR_OURO : COR_TEXTO_SUAVE);
+        } else {
+            desenhar_texto_centralizado(linha, y, 36, cabe ? COR_TEXTO : COR_TEXTO_SUAVE);
+        }
+    }
+
+    desenhar_texto_centralizado("W/S ou setas para escolher  -  ENTER para aplicar  -  ESC para voltar",
+                                ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+
+    terminar_desenho();
+}
+
+bool interface_resolucao_cabe(Resolucao resolucao)
+{
+    int monitor;
+
+    if (resolucao.tela_cheia) {
+        return true;
+    }
+
+    monitor = GetCurrentMonitor();
+    return resolucao.largura <= GetMonitorWidth(monitor) &&
+           resolucao.altura + MARGEM_VERTICAL_DA_JANELA <= GetMonitorHeight(monitor);
+}
+
+/** Põe a janela no meio do monitor onde ela está. */
+static void centralizar_janela(Resolucao resolucao)
+{
+    int monitor = GetCurrentMonitor();
+    Vector2 origem = GetMonitorPosition(monitor);
+    int x = (int)origem.x + (GetMonitorWidth(monitor) - resolucao.largura) / 2;
+    int y = (int)origem.y + (GetMonitorHeight(monitor) - resolucao.altura) / 2;
+
+    SetWindowPosition(x, y);
+}
+
+bool interface_aplicar_resolucao(Resolucao resolucao)
+{
+    bool em_tela_cheia = IsWindowState(FLAG_BORDERLESS_WINDOWED_MODE);
+
+    if (!interface_resolucao_cabe(resolucao)) {
+        return false;
+    }
+
+    if (resolucao.tela_cheia) {
+        if (!em_tela_cheia) {
+            ToggleBorderlessWindowed();
+        }
+        return true;
+    }
+
+    if (em_tela_cheia) {
+        ToggleBorderlessWindowed();
+    }
+
+    SetWindowSize(resolucao.largura, resolucao.altura);
+    centralizar_janela(resolucao);
+    return true;
 }
 
 double interface_tempo_do_quadro(void)
@@ -258,8 +403,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     size_t quantidade;
     int y = 24;
 
-    BeginDrawing();
-    ClearBackground(COR_FUNDO);
+    comecar_desenho();
 
     snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s     MÃO %d     BLINDS %lld/%lld",
              partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
@@ -342,5 +486,5 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
 
     DrawText("ESC volta ao menu", 40, ALTURA_TELA - 40, 20, COR_TEXTO_SUAVE);
 
-    EndDrawing();
+    terminar_desenho();
 }
