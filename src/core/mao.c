@@ -311,6 +311,12 @@ PokerStatus mao_agir(Mao *mao, PokerAction acao)
         return status;
     }
 
+    if (mao->quantidade_de_acoes < MAO_ACOES_MAXIMAS) {
+        mao->acoes[mao->quantidade_de_acoes++] = acao;
+    } else {
+        mao->acoes_perdidas = true;
+    }
+
     registrar_acao(mao, assento, acao.type, fichas_antes);
     return avancar(mao);
 }

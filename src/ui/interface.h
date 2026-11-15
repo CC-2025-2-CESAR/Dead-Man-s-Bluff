@@ -18,11 +18,19 @@
 
 /** Opções disponíveis na tela inicial. */
 typedef enum {
-    MENU_JOGAR = 0,
+    MENU_CONTINUAR = 0,
+    MENU_NOVO_JOGO,
     MENU_CONFIGURACOES,
     MENU_SAIR,
     MENU_TOTAL
 } OpcaoMenu;
+
+/** Resposta do jogador a uma pergunta de sim ou não. */
+typedef enum {
+    RESPOSTA_NENHUMA = 0,
+    RESPOSTA_SIM,
+    RESPOSTA_NAO
+} RespostaConfirmacao;
 
 /**
  * O que o jogador fez na tela de configurações em um quadro.
@@ -71,19 +79,40 @@ double interface_tempo_do_quadro(void);
 
 /**
  * Lê o teclado na tela inicial: W/S ou as setas movem a seleção e
- * ENTER ou ESPAÇO confirmam.
+ * ENTER ou ESPAÇO confirmam. Enquanto não há jogo salvo, a opção Continuar
+ * não pode ser escolhida e a seleção pula por ela.
  *
  * @param selecionada opção destacada, atualizada quando o jogador navega.
+ * @param continuar_disponivel true se há um jogo salvo para continuar.
  * @return true no quadro em que o jogador confirma a opção destacada.
  */
-bool interface_menu_atualizar(OpcaoMenu *selecionada);
+bool interface_menu_atualizar(OpcaoMenu *selecionada, bool continuar_disponivel);
 
 /**
  * Desenha a tela inicial com o título do jogo e o menu.
  *
  * @param selecionada opção que aparece destacada.
+ * @param continuar_disponivel true se há um jogo salvo; senão a opção
+ * Continuar aparece apagada.
+ * @param aviso frase curta que aparece abaixo do menu, ou NULL.
  */
-void interface_menu_desenhar(OpcaoMenu selecionada);
+void interface_menu_desenhar(OpcaoMenu selecionada, bool continuar_disponivel, const char *aviso);
+
+/**
+ * Lê a resposta do jogador a uma pergunta de sim ou não: ENTER ou ESPAÇO
+ * respondem sim, ESC responde não.
+ *
+ * @return a resposta dada neste quadro, ou RESPOSTA_NENHUMA.
+ */
+RespostaConfirmacao interface_confirmacao_ler_resposta(void);
+
+/**
+ * Desenha uma pergunta de sim ou não, com uma frase de explicação.
+ *
+ * @param pergunta a pergunta, em destaque.
+ * @param detalhe o que acontece se o jogador responder sim.
+ */
+void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe);
 
 /**
  * Lê o teclado na tela de configurações: W/S ou as setas movem a seleção,

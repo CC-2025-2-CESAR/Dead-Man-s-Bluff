@@ -11,6 +11,7 @@
 
 #define MAO_CARTAS_NO_BOARD 5
 #define MAO_CARTAS_ORDENADAS (2 + MAO_CARTAS_NO_BOARD)
+#define MAO_ACOES_MAXIMAS 512
 
 /**
  * Situação de uma mão.
@@ -40,6 +41,11 @@ typedef enum {
  * situacao: situação atual da mão.
  * eventos: fila que recebe os eventos da mão, ou NULL se ninguém os
  * consome. A fila pertence a quem a criou, não à Mao.
+ * acoes: as ações aplicadas com sucesso, na ordem, dos dois assentos. Com o
+ * mesmo baralho e as mesmas ações, a mão se refaz igual.
+ * quantidade_de_acoes: quantas posições de acoes estão preenchidas.
+ * acoes_perdidas: true se passaram de MAO_ACOES_MAXIMAS e o registro ficou
+ * incompleto; nesse caso a mão não pode mais ser refeita pelas ações.
  *
  * Inicialize com Mao mao = {0}; antes da primeira chamada a mao_iniciar.
  */
@@ -52,6 +58,9 @@ typedef struct {
     PokerResult resultado;
     MaoSituacao situacao;
     FilaEventos *eventos;
+    PokerAction acoes[MAO_ACOES_MAXIMAS];
+    size_t quantidade_de_acoes;
+    bool acoes_perdidas;
 } Mao;
 
 /**
