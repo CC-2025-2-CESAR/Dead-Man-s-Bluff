@@ -586,6 +586,66 @@ static void test_cartas_ordenadas_com_mao_invalida_nao_vaza(void)
     mao_liberar(&mao);
 }
 
+static void test_mao_registra_as_acoes_aplicadas(void)
+{
+    Torneio torneio;
+    Mao mao = {0};
+
+    torneio_iniciar(&torneio);
+    srand(2);
+    CHECK(mao_iniciar(&mao, &torneio));
+    CHECK(mao.quantidade_de_acoes == 0 && !mao.acoes_perdidas);
+
+    CHECK(mao_agir(&mao, (PokerAction){POKER_CHECK, 0}) != POKER_OK);
+    CHECK(mao.quantidade_de_acoes == 0);
+
+    CHECK(mao_agir(&mao, PAGAR) == POKER_OK);
+    CHECK(mao.quantidade_de_acoes == 1);
+    CHECK(mao.acoes[0].type == POKER_CALL && mao.acoes[0].total == 0);
+
+    CHECK(mao_agir(&mao, (PokerAction){POKER_RAISE, 60}) == POKER_OK);
+    CHECK(mao.quantidade_de_acoes == 2);
+    CHECK(mao.acoes[1].type == POKER_RAISE && mao.acoes[1].total == 60);
+
+    CHECK(mao_agir(&mao, (PokerAction){POKER_CHECK, 0}) != POKER_OK);
+    CHECK(mao.quantidade_de_acoes == 2);
+
+    CHECK(mao_agir(&mao, DESISTIR) == POKER_OK);
+    CHECK(mao.situacao == MAO_ENCERRADA);
+    CHECK(mao.quantidade_de_acoes == 3);
+    CHECK(mao.acoes[2].type == POKER_FOLD);
+    CHECK(mao_agir(&mao, DESISTIR) == POKER_ERR_STATE);
+    CHECK(mao.quantidade_de_acoes == 3);
+
+    CHECK(mao_registrar_no_torneio(&mao, &torneio));
+    CHECK(mao_iniciar(&mao, &torneio));
+    CHECK(mao.quantidade_de_acoes == 0 && !mao.acoes_perdidas);
+    mao_liberar(&mao);
+}
+
+static void test_mao_avisa_quando_as_acoes_passam_do_limite(void)
+{
+    Torneio torneio;
+    Mao mao = {0};
+
+    torneio_iniciar(&torneio);
+    srand(2);
+    CHECK(mao_iniciar(&mao, &torneio));
+
+    mao.quantidade_de_acoes = MAO_ACOES_MAXIMAS - 1;
+    CHECK(mao_agir(&mao, PAGAR) == POKER_OK);
+    CHECK(mao.quantidade_de_acoes == MAO_ACOES_MAXIMAS && !mao.acoes_perdidas);
+    CHECK(mao.acoes[MAO_ACOES_MAXIMAS - 1].type == POKER_CALL);
+
+    CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
+    CHECK(mao.quantidade_de_acoes == MAO_ACOES_MAXIMAS && mao.acoes_perdidas);
+    CHECK(mao.acoes[MAO_ACOES_MAXIMAS - 1].type == POKER_CALL);
+
+    CHECK(mao_iniciar(&mao, &torneio));
+    CHECK(mao.quantidade_de_acoes == 0 && !mao.acoes_perdidas);
+    mao_liberar(&mao);
+}
+
 static PokerAction escolher_acao_aleatoria(const Mao *mao, unsigned *semente)
 {
     PokerLegalActions legais;
@@ -700,6 +760,8 @@ int main(void)
     test_liberar_mao_abandonada();
     test_cartas_ordenadas_recusa_pedidos_invalidos();
     test_cartas_ordenadas_com_mao_invalida_nao_vaza();
+    test_mao_registra_as_acoes_aplicadas();
+    test_mao_avisa_quando_as_acoes_passam_do_limite();
     test_torneio_completo_com_acoes_aleatorias();
     puts("OK: mao completa com baralho, motor e torneio (desistencia, river, all-in em cada rua, stacks curtos e torneios inteiros).");
     return EXIT_SUCCESS;

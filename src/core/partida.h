@@ -2,6 +2,8 @@
 #define PARTIDA_H
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #include "core/eventos.h"
 #include "core/mao.h"
@@ -64,6 +66,12 @@ typedef enum {
  * adversario_embriagado: modo embriagado da IA; fica para as trapaças
  * ligarem e hoje é sempre falso.
  * situacao: situação atual da partida.
+ * torneio_da_mao: o torneio como estava quando a mão atual começou. Com a
+ * semente da mão e as ações da Mao, serve para refazer a mão (ver
+ * partida_exportar).
+ * semente_da_mao: semente do embaralhamento da mão atual.
+ * estado_das_sementes: gerador que sorteia a semente de cada mão. É da
+ * partida, e não o rand global, para duas partidas não se atrapalharem.
  *
  * Não copie uma Partida: o contexto da IA aponta para os geradores que ela
  * guarda. Zere com Partida partida = {0}; antes de partida_iniciar.
@@ -77,16 +85,53 @@ typedef struct {
     PokerAIContext ia;
     bool adversario_embriagado;
     PartidaSituacao situacao;
+    Torneio torneio_da_mao;
+    unsigned semente_da_mao;
+    uint64_t estado_das_sementes;
 } Partida;
 
 /**
- * Começa uma partida nova: semeia o gerador do baralho com srand, prepara
- * o torneio e a IA do primeiro adversário e inicia a primeira mão. Depois
- * da chamada, confira Partida.situacao: se um stack for menor ou igual ao
- * blind, a mão já se resolve e a partida começa em PARTIDA_MAO_ENCERRADA.
+ * O que basta guardar de uma partida para continuá-la depois: o torneio no
+ * início da mão atual, a semente do baralho, as ações já feitas e o estado da
+ * IA. As cartas, as fichas e a situação servem para conferir, ao refazer a
+ * mão, que o resultado é o mesmo de quando foi guardada.
+ *
+ * torneio: torneio no início da mão atual; sempre em andamento.
+ * semente_da_mao: semente do embaralhamento da mão atual.
+ * estado_das_sementes: estado do gerador das sementes das próximas mãos.
+ * rng_acao e rng_equidade: estados dos geradores da IA.
+ * adversario_embriagado: modo embriagado da IA.
+ * situacao: situação da partida quando foi guardada.
+ * cartas, board e cartas_no_board: cartas da mão quando foi guardada.
+ * fichas: fichas de cada assento na mesa quando foi guardada.
+ * acoes e quantidade_de_acoes: ações aplicadas na mão, na ordem.
+ */
+typedef struct {
+    Torneio torneio;
+    unsigned semente_da_mao;
+    uint64_t estado_das_sementes;
+    uint64_t rng_acao;
+    uint64_t rng_equidade;
+    bool adversario_embriagado;
+    PartidaSituacao situacao;
+    PokerCard cartas[2][2];
+    PokerCard board[MAO_CARTAS_NO_BOARD];
+    size_t cartas_no_board;
+    PokerChips fichas[2];
+    PokerAction acoes[MAO_ACOES_MAXIMAS];
+    size_t quantidade_de_acoes;
+} PartidaSalva;
+
+/**
+ * Começa uma partida nova: prepara o torneio e a IA do primeiro adversário
+ * e inicia a primeira mão. Cada mão sorteia a própria semente a partir da
+ * semente da partida e chama srand com ela antes de embaralhar, então o
+ * baralho de uma mão não depende do rand global. Depois da chamada, confira
+ * Partida.situacao: se um stack for menor ou igual ao blind, a mão já se
+ * resolve e a partida começa em PARTIDA_MAO_ENCERRADA.
  *
  * @param partida partida zerada ou já usada.
- * @param semente semente do baralho e da IA; a mesma semente com as mesmas
+ * @param semente semente dos baralhos e da IA; a mesma semente com as mesmas
  * ações reproduz a mesma partida.
  * @return true se a partida começou.
  */
@@ -182,5 +227,36 @@ PokerStatus partida_acoes_legais(const Partida *partida, PokerLegalActions *out)
  * @return o nome, ou "?" se o índice for inválido.
  */
 const char *partida_nome_do_adversario(int confronto);
+
+/**
+ * Junta o que é preciso para continuar a partida mais tarde, no ponto em
+ * que ela está. Só vale enquanto a partida pode ser continuada: na vez do
+ * jogador, na vez do adversário, depois de uma mão ou depois de um confronto
+ * vencido. Falência e título encerram a partida, e não há o que guardar.
+ *
+ * @param partida partida a guardar.
+ * @param salva recebe os dados; fica intacta se a função devolver false.
+ * @return true se os dados foram preenchidos; false se a partida não pode
+ * ser continuada ou se a mão passou de MAO_ACOES_MAXIMAS ações.
+ */
+bool partida_exportar(const Partida *partida, PartidaSalva *salva);
+
+/**
+ * Refaz uma partida guardada por partida_exportar: volta o torneio ao início
+ * da mão, embaralha com a mesma semente e reaplica as ações, o que devolve a
+ * mão exatamente ao ponto em que estava. Refaz também a fila de eventos da
+ * mão, que a interface pode consumir para mostrar o que já aconteceu. Antes
+ * de aceitar, confere se cartas, fichas e situação batem com os guardados.
+ *
+ * Chama srand com a semente da mão, como cada mão faz ao começar. Dados de
+ * outro programa ou de outra máquina podem embaralhar de outro jeito, e
+ * nesse caso a conferência recusa.
+ *
+ * @param partida partida zerada ou já usada; fica vazia se falhar.
+ * @param salva dados guardados.
+ * @return true se a partida voltou ao ponto guardado; false se os dados são
+ * inválidos ou não reproduzem a mão guardada.
+ */
+bool partida_restaurar(Partida *partida, const PartidaSalva *salva);
 
 #endif

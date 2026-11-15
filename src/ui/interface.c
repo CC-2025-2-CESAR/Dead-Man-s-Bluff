@@ -15,8 +15,9 @@ static const Color COR_FUNDO = { 12, 46, 31, 255 };
 static const Color COR_OURO = { 212, 175, 55, 255 };
 static const Color COR_TEXTO = { 235, 235, 225, 255 };
 static const Color COR_TEXTO_SUAVE = { 150, 170, 155, 255 };
+static const Color COR_FUNDO_CLARO = { 52, 88, 70, 255 };
 
-static const char *ROTULOS_MENU[MENU_TOTAL] = { "JOGAR", "CONFIGURAÇÕES", "SAIR" };
+static const char *ROTULOS_MENU[MENU_TOTAL] = { "CONTINUAR", "NOVO JOGO", "CONFIGURAÇÕES", "SAIR" };
 
 /** Espaço que a barra de título e a barra de tarefas tiram da altura do monitor. */
 #define MARGEM_VERTICAL_DA_JANELA 80
@@ -88,18 +89,32 @@ bool interface_fechar_solicitado(void)
     return WindowShouldClose();
 }
 
-bool interface_menu_atualizar(OpcaoMenu *selecionada)
+/** Anda uma posição no menu, pulando Continuar quando não há jogo salvo. */
+static OpcaoMenu mover_no_menu(OpcaoMenu atual, int sentido, bool continuar_disponivel)
 {
+    int destino = ((int)atual + sentido + MENU_TOTAL) % MENU_TOTAL;
+
+    if (destino == MENU_CONTINUAR && !continuar_disponivel)
+        destino = (destino + sentido + MENU_TOTAL) % MENU_TOTAL;
+
+    return (OpcaoMenu)destino;
+}
+
+bool interface_menu_atualizar(OpcaoMenu *selecionada, bool continuar_disponivel)
+{
+    if (*selecionada == MENU_CONTINUAR && !continuar_disponivel)
+        *selecionada = MENU_NOVO_JOGO;
+
     if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S))
-        *selecionada = (*selecionada + 1) % MENU_TOTAL;
+        *selecionada = mover_no_menu(*selecionada, 1, continuar_disponivel);
 
     if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W))
-        *selecionada = (*selecionada + MENU_TOTAL - 1) % MENU_TOTAL;
+        *selecionada = mover_no_menu(*selecionada, -1, continuar_disponivel);
 
     return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
 }
 
-void interface_menu_desenhar(OpcaoMenu selecionada)
+void interface_menu_desenhar(OpcaoMenu selecionada, bool continuar_disponivel, const char *aviso)
 {
     comecar_desenho();
 
@@ -108,15 +123,42 @@ void interface_menu_desenhar(OpcaoMenu selecionada)
     DrawRectangle((LARGURA_TELA - 320) / 2, 305, 320, 3, COR_OURO);
 
     for (int i = 0; i < MENU_TOTAL; i++) {
-        int y = 390 + i * 70;
+        int y = 345 + i * 62;
+        bool apagada = i == MENU_CONTINUAR && !continuar_disponivel;
 
-        if (i == (int)selecionada)
+        if (i == (int)selecionada && !apagada)
             desenhar_texto_centralizado(TextFormat("> %s <", ROTULOS_MENU[i]), y, 44, COR_OURO);
         else
-            desenhar_texto_centralizado(ROTULOS_MENU[i], y, 44, COR_TEXTO_SUAVE);
+            desenhar_texto_centralizado(ROTULOS_MENU[i], y, 44, apagada ? COR_FUNDO_CLARO : COR_TEXTO_SUAVE);
     }
 
+    if (aviso != NULL)
+        desenhar_texto_centralizado(aviso, 600, 24, COR_OURO);
+
     desenhar_texto_centralizado("W/S ou setas para navegar  -  ENTER para confirmar", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+
+    terminar_desenho();
+}
+
+RespostaConfirmacao interface_confirmacao_ler_resposta(void)
+{
+    if (IsKeyPressed(KEY_ESCAPE))
+        return RESPOSTA_NAO;
+
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
+        return RESPOSTA_SIM;
+
+    return RESPOSTA_NENHUMA;
+}
+
+void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe)
+{
+    comecar_desenho();
+
+    desenhar_texto_centralizado(pergunta, 240, 56, COR_OURO);
+    DrawRectangle((LARGURA_TELA - 320) / 2, 320, 320, 3, COR_OURO);
+    desenhar_texto_centralizado(detalhe, 360, 28, COR_TEXTO);
+    desenhar_texto_centralizado("ENTER para confirmar  -  ESC para cancelar", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
 
     terminar_desenho();
 }

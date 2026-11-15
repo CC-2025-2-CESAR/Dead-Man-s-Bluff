@@ -3,12 +3,14 @@ CPPFLAGS += -Isrc/poker
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -Werror
 POKER_SRC = src/poker/poker.c src/poker/apostas.c
 POKER_HEADERS = src/poker/poker.h src/poker/apostas.h
-JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c $(CONFIGURACOES_SRC) $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC)
-JOGO_HEADERS = src/core/jogo.h src/ui/interface.h $(CONFIGURACOES_HEADERS) $(PARTIDA_HEADERS) $(MAO_IA_HEADERS) $(MAO_HEADERS) $(AI_HEADERS) $(TORNEIO_HEADERS) $(DECK_HEADERS) $(POKER_HEADERS)
+JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c $(CONFIGURACOES_SRC) $(SALVAMENTO_SRC) $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC)
+JOGO_HEADERS = src/core/jogo.h src/ui/interface.h $(CONFIGURACOES_HEADERS) $(SALVAMENTO_HEADERS) $(PARTIDA_HEADERS) $(MAO_IA_HEADERS) $(MAO_HEADERS) $(AI_HEADERS) $(TORNEIO_HEADERS) $(DECK_HEADERS) $(POKER_HEADERS)
 TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
 CONFIGURACOES_SRC = src/core/configuracoes.c
 CONFIGURACOES_HEADERS = src/core/configuracoes.h
+SALVAMENTO_SRC = src/core/salvamento.c
+SALVAMENTO_HEADERS = src/core/salvamento.h
 EVENTOS_SRC = src/core/eventos.c
 EVENTOS_HEADERS = src/core/eventos.h
 LISTA_CARTAS_SRC = src/cards/lista_cartas.c
@@ -55,7 +57,7 @@ build/test_mao: tests/test_mao.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORN
 build/test_eventos: tests/test_eventos.c $(MAO_SRC) $(MAO_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc $(CFLAGS) $(LDFLAGS) tests/test_eventos.c $(MAO_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -o $@
 
-test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DECK_TESTS) build/test_lista_cartas build/test_configuracoes build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia build/test_partida
+test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DECK_TESTS) build/test_lista_cartas build/test_configuracoes build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia build/test_partida build/test_salvamento
 	./build/test_poker
 	./build/test_torneio
 	./build/test_mao
@@ -72,6 +74,7 @@ test: build/test_poker build/test_torneio build/test_mao build/test_eventos $(DE
 	./build/test_ai_embriaguez
 	./build/test_mao_ia
 	./build/test_partida
+	./build/test_salvamento
 
 test-ai: build/test_poker_ai build/test_ai_integration build/test_tabelas_config build/test_ai_match_flow build/test_ai_embriaguez build/test_mao_ia
 	./build/test_poker_ai
@@ -86,6 +89,9 @@ build/test_mao_ia: tests/test_mao_ia.c $(MAO_IA_SRC) $(MAO_IA_HEADERS) $(MAO_SRC
 
 build/test_partida: tests/test_partida.c $(PARTIDA_SRC) $(PARTIDA_HEADERS) $(MAO_IA_SRC) $(MAO_IA_HEADERS) $(MAO_SRC) $(MAO_HEADERS) $(AI_SRC) $(AI_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_partida.c $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
+
+build/test_salvamento: tests/test_salvamento.c $(SALVAMENTO_SRC) $(SALVAMENTO_HEADERS) $(PARTIDA_SRC) $(PARTIDA_HEADERS) $(MAO_IA_SRC) $(MAO_IA_HEADERS) $(MAO_SRC) $(MAO_HEADERS) $(AI_SRC) $(AI_HEADERS) $(TORNEIO_SRC) $(TORNEIO_HEADERS) $(DECK_SRC) $(DECK_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
+	$(CC) $(CPPFLAGS) -Isrc -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_salvamento.c $(SALVAMENTO_SRC) $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@
 
 build/test_poker_ai: tests/test_poker_ai.c $(AI_SRC) $(AI_HEADERS) $(POKER_SRC) $(POKER_HEADERS) | build
 	$(CC) $(CPPFLAGS) -Isrc/gameplay $(AI_CFLAGS) $(LDFLAGS) tests/test_poker_ai.c $(AI_SRC) $(POKER_SRC) $(LDLIBS) -lm -o $@

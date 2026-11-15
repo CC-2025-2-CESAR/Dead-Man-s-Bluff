@@ -122,12 +122,28 @@ Quem chama o quê, em ordem:
 | `interface_tempo_do_quadro()` | Duração do quadro, que o `jogo.c` usa para contar a pausa do adversário |
 | `interface_configuracoes_ler_entrada()` e `interface_configuracoes_desenhar(configuracoes, selecionada)` | Tela de configurações, hoje só com a lista de resoluções |
 | `interface_resolucao_cabe(resolucao)` e `interface_aplicar_resolucao(resolucao)` | Dizem se a resolução cabe no monitor e passam a janela para ela, ou para a tela cheia sem bordas |
+| `interface_menu_atualizar(opcao, continuar_disponivel)` e `interface_menu_desenhar(opcao, continuar_disponivel, aviso)` | Menu inicial com Continuar, Novo jogo, Configurações e Sair; Continuar fica apagado e é pulado quando não há jogo salvo |
+| `interface_confirmacao_ler_resposta()` e `interface_confirmacao_desenhar(pergunta, detalhe)` | Pergunta de sim ou não, usada ao começar um jogo novo por cima de um salvo |
 
 - **Resolução:** as telas desenham sempre em `LARGURA_TELA` por `ALTURA_TELA` (1280x720), e a interface escala o desenho para a janela real, com faixas nas bordas se a proporção for outra. Telas novas usam essas coordenadas e não precisam saber o tamanho da janela. A lista de resoluções (960x540, 1280x720, 1600x900, 1920x1080 e tela cheia) e a escolha do jogador ficam em `src/core/configuracoes.*`. Uma janela só é oferecida se couber no monitor com a barra de título.
 
 - A interface não decide regra: ela não chama funções de `poker`, `mao` ou `partida` que mudem o estado. Quem faz isso é o `jogo.c`.
 - O que cada comando significa e qual aposta é válida é do core: `partida_comando_jogador` traduz o comando e `partida_ajustar_aposta` mantém o valor dentro dos limites, em passos de um big blind.
 - O adversário espera 0,8 s (`PAUSA_DO_ADVERSARIO`, em `jogo.c`) antes de agir. Se uma animação precisar de mais tempo, combine com o Arthur em vez de travar o quadro.
+
+### 3.5 Salvar e continuar
+
+**[Decidido]** O jogo guarda a partida em `progresso.sav` (pasta de onde o jogo foi aberto, fora do git) e o menu oferece Continuar. O salvamento é automático: a cada jogada e a cada mão nova, ao voltar ao menu e ao sair. Quando a partida acaba, por falência ou título, o arquivo é apagado. Começar um jogo novo com um salvo pede confirmação.
+
+Para continuar **no meio de uma mão**, o que se guarda não é uma cópia da memória, e sim o suficiente para **refazer a mão**:
+
+- `partida_exportar` junta numa `PartidaSalva` o torneio **no início da mão atual**, a semente do baralho da mão, o estado do gerador das sementes, os estados dos geradores da IA, o modo embriagado e a lista de ações já aplicadas (a `Mao` as registra em `acoes`, até `MAO_ACOES_MAXIMAS`).
+- `partida_restaurar` volta o torneio ao início da mão, embaralha com a mesma semente, reaplica as ações com `mao_agir` e confere se cartas, fichas e situação batem com os guardados. Se não baterem, recusa, e o jogo avisa que não foi possível carregar.
+- Cada mão sorteia a própria semente com um gerador da `Partida` (não com o `rand` global) e chama `srand` com ela logo antes de embaralhar. Por isso duas partidas no mesmo programa não se atrapalham, e o baralho de uma mão sai igual ao ser refeito.
+- O formato do arquivo é texto simples, com versão (`DMBSAVE 1`), e o leitor confere cada campo; arquivo cortado, alterado ou de outra versão é recusado sem derrubar o jogo (`src/core/salvamento.*`).
+- O baralho de uma mão só se refaz igual no mesmo sistema e na mesma compilação, porque depende do `rand` da biblioteca C. Um salvamento levado a outro computador pode ser recusado pela conferência.
+
+**Para quem implementar trapaças e roleta (Gabriel):** tudo o que mudar o estado do jogo e não for uma ação do motor precisa entrar em `PartidaSalva` e em `partida_exportar` e `partida_restaurar`, senão o jogo continuado diverge do original. Exemplos: carta trocada ou tirada do baralho, carta marcada, suspeita de cada adversário, balas da roleta, custo pago, duração da embriaguez. O teste `tests/test_salvamento.c` refaz partidas salvas e as compara com as originais passo a passo, e vai acusar a diferença.
 
 ## 4. Regras do jogo (resumo do conceito v0.2)
 
@@ -270,7 +286,7 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 
 | Pessoa | Área | Já feito | Próximos passos | Depende de |
 | --- | --- | --- | --- | --- |
-| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes (PR #5); revisão e merge dos PRs #1, #2 e #6; testes do baralho ligados ao `make test`; loop da mão com testes (`src/core/mao.*`); fila de eventos para a UI com testes (`src/core/eventos.*`); controlador da partida com testes (`src/core/partida.*`), com o perfil da IA de cada confronto; mesa jogável de ponta a ponta, com o `jogo.c` ligado à `Partida` e a interface em texto cru de teste (3.4); README atualizado e pendências 3, 6, 7 e 9 fechadas (PR #14); lista encadeada de cartas com Insertion Sort e testes (`src/cards/lista_cartas.*`) | Integrar as trapaças e a roleta à partida; revisar e mesclar os PRs | Peixoto, para as trapaças e a roleta |
+| **Arthur** | Engine e arquitetura (`src/core`) | Estrutura do repositório, regras de branch, tela inicial e loop principal com troca de estados (PR #3); lógica do torneio com testes (PR #5); revisão e merge dos PRs #1, #2 e #6; testes do baralho ligados ao `make test`; loop da mão com testes (`src/core/mao.*`); fila de eventos para a UI com testes (`src/core/eventos.*`); controlador da partida com testes (`src/core/partida.*`), com o perfil da IA de cada confronto; mesa jogável de ponta a ponta, com o `jogo.c` ligado à `Partida` e a interface em texto cru de teste (3.4); README atualizado e pendências 3, 6, 7 e 9 fechadas (PR #14); lista encadeada de cartas com Insertion Sort e testes (`src/cards/lista_cartas.*`); tela de configurações com a escolha de resolução (PR #18); salvar e continuar o jogo, inclusive no meio de uma mão (3.5) | Integrar as trapaças e a roleta à partida, incluindo o que elas mudam no salvamento (3.5); revisar e mesclar os PRs | Peixoto, para as trapaças e a roleta |
 | **Júlia** | Motor de pôquer (`src/poker`) | Avaliação, apostas e pote com testes; correções do review aplicadas (PR #1, já na `develop`); contrato do motor escrito em `poker.h`: fases, `poker_start_hand` e `poker_settle` (PR #6, já na `develop`) | Decidir com o Gabriel os custos no meio da mão (5.2); newline final em `src/poker/poker.c` | Decisões do Gabriel sobre custos |
 | **Rafael** | Cartas e IA (`src/cards`, `src/gameplay/poker_ai*`) | Baralho, embaralhamento, distribuição e board com 3 arquivos de teste (PR #2, já na `develop`); motor de decisão da IA com os 3 perfis e testes, em `src/gameplay/poker_ai*` (PR #7, já na `develop`); ponte entre a `Mao` e a IA com teste, em `src/core/mao_ia.*` (PR #10, já na `develop`) | Operações novas do baralho para as trapaças (5.3); ajuste fino da IA jogando | Decisões do Gabriel sobre trapaças |
 | **Gabriel** | Mecânicas (`src/gameplay/trapacas.*`, `probabilidade.*`, `progressao.*`) | Lista de mecânicas com proposta de implementação | Fechar as pendências 1, 2 e 10; implementar trapaças, chance de descoberta e suspeita individual; roleta russa e balas | Loop da mão do Arthur |
