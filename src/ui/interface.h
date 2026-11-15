@@ -3,18 +3,39 @@
 
 #include <stdbool.h>
 
+#include "core/configuracoes.h"
 #include "core/eventos.h"
 #include "core/partida.h"
 
+/**
+ * Tamanho do desenho, em pixels, que não muda com a resolução da janela. Todas
+ * as telas desenham como se a janela tivesse este tamanho, e a interface
+ * escala o resultado para a janela real, com faixas nas bordas se a
+ * proporção for diferente. Quem desenha telas novas usa estas coordenadas.
+ */
 #define LARGURA_TELA 1280
 #define ALTURA_TELA 720
 
 /** Opções disponíveis na tela inicial. */
 typedef enum {
     MENU_JOGAR = 0,
+    MENU_CONFIGURACOES,
     MENU_SAIR,
     MENU_TOTAL
 } OpcaoMenu;
+
+/**
+ * O que o jogador fez na tela de configurações em um quadro.
+ *
+ * movimento: -1 para subir na lista, 1 para descer, 0 se não mexeu.
+ * confirmar: pediu para usar a opção destacada.
+ * voltar: pediu para voltar ao menu.
+ */
+typedef struct {
+    int movimento;
+    bool confirmar;
+    bool voltar;
+} EntradaConfiguracoes;
 
 /**
  * O que o jogador fez na mesa em um quadro. A interface só traduz teclas ou
@@ -63,6 +84,43 @@ bool interface_menu_atualizar(OpcaoMenu *selecionada);
  * @param selecionada opção que aparece destacada.
  */
 void interface_menu_desenhar(OpcaoMenu selecionada);
+
+/**
+ * Lê o teclado na tela de configurações: W/S ou as setas movem a seleção,
+ * ENTER ou ESPAÇO confirmam e ESC volta ao menu.
+ *
+ * @return os comandos do quadro.
+ */
+EntradaConfiguracoes interface_configuracoes_ler_entrada(void);
+
+/**
+ * Desenha a tela de configurações, com a lista de resoluções.
+ *
+ * @param configuracoes configurações em uso; a resolução atual aparece marcada.
+ * @param selecionada posição destacada na lista de resoluções.
+ */
+void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int selecionada);
+
+/**
+ * Indica se uma resolução cabe no monitor onde a janela está. A janela em
+ * tamanho fixo precisa caber com a barra de título; a tela cheia sempre
+ * cabe.
+ *
+ * @param resolucao resolução a conferir.
+ * @return true se pode ser usada neste monitor.
+ */
+bool interface_resolucao_cabe(Resolucao resolucao);
+
+/**
+ * Passa a janela para a resolução pedida: muda o tamanho e a centraliza no
+ * monitor, ou liga a tela cheia sem bordas. O desenho se ajusta sozinho ao
+ * novo tamanho.
+ *
+ * @param resolucao resolução a usar.
+ * @return true se a janela mudou ou já estava assim; false, sem alterar nada,
+ * se a resolução não cabe no monitor.
+ */
+bool interface_aplicar_resolucao(Resolucao resolucao);
 
 /**
  * Lê o que o jogador fez na mesa neste quadro. Hoje: F desiste, C passa ou
