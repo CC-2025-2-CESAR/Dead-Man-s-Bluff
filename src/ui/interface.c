@@ -57,19 +57,133 @@ static Camera2D camera_da_janela(void)
     return camera;
 }
 
+#define BOTOES_MAXIMOS 24
+#define BOTAO_NENHUM (-1)
+#define BOTAO_RESOLUCAO 100
+#define BOTAO_VOLTAR_CONFIGURACOES 200
+#define BOTAO_SIM 210
+#define BOTAO_NAO 211
+#define BOTAO_DESISTIR 300
+#define BOTAO_PASSAR_OU_PAGAR 301
+#define BOTAO_APOSTAR 302
+#define BOTAO_ALL_IN 303
+#define BOTAO_AUMENTAR 304
+#define BOTAO_DIMINUIR 305
+#define BOTAO_CONTINUAR 306
+#define BOTAO_VOLTAR_DA_MESA 307
+
+/**
+ * Área clicável de uma tela. Cada tela registra os seus botões ao desenhar, e
+ * a leitura do mouse no quadro seguinte consulta o que foi registrado. Os
+ * valores de id: 0 a MENU_TOTAL - 1 são as opções do menu, BOTAO_RESOLUCAO
+ * mais a posição são as resoluções, e os demais estão acima.
+ */
+typedef struct {
+    Rectangle area;
+    int id;
+} Botao;
+
+static Botao botoes[BOTOES_MAXIMOS];
+static int total_de_botoes;
+static bool cursor_sobre_botao;
+static bool cursor_em_mao;
+
+/** Posição do mouse nas coordenadas de LARGURA_TELA por ALTURA_TELA. */
+static Vector2 posicao_do_mouse(void)
+{
+    return GetScreenToWorld2D(GetMousePosition(), camera_da_janela());
+}
+
+static bool mouse_sobre(Rectangle area)
+{
+    return CheckCollisionPointRec(posicao_do_mouse(), area);
+}
+
+/** Registra uma área clicável do quadro e, se o mouse está sobre ela, pede o cursor de mão. */
+static void registrar_botao(Rectangle area, int id)
+{
+    if (total_de_botoes < BOTOES_MAXIMOS)
+        botoes[total_de_botoes++] = (Botao){ area, id };
+
+    if (mouse_sobre(area))
+        cursor_sobre_botao = true;
+}
+
+/** Devolve o id do botão sob o mouse, ou BOTAO_NENHUM. */
+static int botao_sob_o_mouse(void)
+{
+    Vector2 mouse = posicao_do_mouse();
+
+    for (int i = total_de_botoes - 1; i >= 0; i--) {
+        if (CheckCollisionPointRec(mouse, botoes[i].area))
+            return botoes[i].id;
+    }
+
+    return BOTAO_NENHUM;
+}
+
+/** Devolve o id do botão em que o jogador clicou neste quadro, ou BOTAO_NENHUM. */
+static int botao_clicado(void)
+{
+    return IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ? botao_sob_o_mouse() : BOTAO_NENHUM;
+}
+
+/** Indica se o mouse mudou de lugar neste quadro. */
+static bool mouse_se_moveu(void)
+{
+    Vector2 delta = GetMouseDelta();
+
+    return delta.x != 0.0f || delta.y != 0.0f;
+}
+
+/**
+ * Desenha um texto que também é um botão: ele muda de cor e ganha um
+ * sublinhado quando o mouse passa por cima.
+ *
+ * @return a largura do texto, para quem quiser colocar outro ao lado.
+ */
+static int botao_de_texto(const char *texto, int x, int y, int tamanho, Color cor, int id)
+{
+    int largura = MeasureText(texto, tamanho);
+    Rectangle area = { (float)(x - 8), (float)(y - 4), (float)(largura + 16), (float)(tamanho + 8) };
+    bool sobre = mouse_sobre(area);
+
+    DrawText(texto, x, y, tamanho, sobre ? COR_TEXTO : cor);
+
+    if (sobre)
+        DrawRectangle(x, y + tamanho + 2, largura, 2, COR_OURO);
+
+    registrar_botao(area, id);
+    return largura;
+}
+
+/** Como botao_de_texto, centralizado na largura da tela. */
+static void botao_centralizado(const char *texto, int y, int tamanho, Color cor, int id)
+{
+    botao_de_texto(texto, (LARGURA_TELA - MeasureText(texto, tamanho)) / 2, y, tamanho, cor, id);
+}
+
 /** Começa um quadro: limpa a janela e passa a desenhar nas coordenadas de LARGURA_TELA por ALTURA_TELA. */
 static void comecar_desenho(void)
 {
+    total_de_botoes = 0;
+    cursor_sobre_botao = false;
+
     BeginDrawing();
     ClearBackground(COR_FUNDO);
     BeginMode2D(camera_da_janela());
 }
 
-/** Termina o quadro começado por comecar_desenho. */
+/** Termina o quadro começado por comecar_desenho e troca o cursor se o mouse entrou ou saiu de um botão. */
 static void terminar_desenho(void)
 {
     EndMode2D();
     EndDrawing();
+
+    if (cursor_sobre_botao != cursor_em_mao) {
+        SetMouseCursor(cursor_sobre_botao ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+        cursor_em_mao = cursor_sobre_botao;
+    }
 }
 
 void interface_iniciar(void)
@@ -111,7 +225,17 @@ bool interface_menu_atualizar(OpcaoMenu *selecionada, bool continuar_disponivel)
     if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W))
         *selecionada = mover_no_menu(*selecionada, -1, continuar_disponivel);
 
-    return IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
+    int apontada = botao_sob_o_mouse();
+    int clicada = botao_clicado();
+    bool clicou = clicada >= 0 && clicada < MENU_TOTAL;
+
+    if (mouse_se_moveu() && apontada >= 0 && apontada < MENU_TOTAL)
+        *selecionada = (OpcaoMenu)apontada;
+
+    if (clicou)
+        *selecionada = (OpcaoMenu)clicada;
+
+    return clicou || IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
 }
 
 void interface_menu_desenhar(OpcaoMenu selecionada, bool continuar_disponivel, const char *aviso)
@@ -125,27 +249,34 @@ void interface_menu_desenhar(OpcaoMenu selecionada, bool continuar_disponivel, c
     for (int i = 0; i < MENU_TOTAL; i++) {
         int y = 345 + i * 62;
         bool apagada = i == MENU_CONTINUAR && !continuar_disponivel;
+        int largura = MeasureText(ROTULOS_MENU[i], 44);
 
         if (i == (int)selecionada && !apagada)
             desenhar_texto_centralizado(TextFormat("> %s <", ROTULOS_MENU[i]), y, 44, COR_OURO);
         else
             desenhar_texto_centralizado(ROTULOS_MENU[i], y, 44, apagada ? COR_FUNDO_CLARO : COR_TEXTO_SUAVE);
+
+        if (!apagada)
+            registrar_botao((Rectangle){ (float)((LARGURA_TELA - largura) / 2 - 40), (float)(y - 6),
+                                         (float)(largura + 80), 56.0f }, i);
     }
 
     if (aviso != NULL)
         desenhar_texto_centralizado(aviso, 600, 24, COR_OURO);
 
-    desenhar_texto_centralizado("W/S ou setas para navegar  -  ENTER para confirmar", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+    desenhar_texto_centralizado("Clique ou use W/S e ENTER para escolher", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
 
     terminar_desenho();
 }
 
 RespostaConfirmacao interface_confirmacao_ler_resposta(void)
 {
-    if (IsKeyPressed(KEY_ESCAPE))
+    int clicada = botao_clicado();
+
+    if (IsKeyPressed(KEY_ESCAPE) || clicada == BOTAO_NAO)
         return RESPOSTA_NAO;
 
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) || clicada == BOTAO_SIM)
         return RESPOSTA_SIM;
 
     return RESPOSTA_NENHUMA;
@@ -158,14 +289,20 @@ void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe)
     desenhar_texto_centralizado(pergunta, 240, 56, COR_OURO);
     DrawRectangle((LARGURA_TELA - 320) / 2, 320, 320, 3, COR_OURO);
     desenhar_texto_centralizado(detalhe, 360, 28, COR_TEXTO);
-    desenhar_texto_centralizado("ENTER para confirmar  -  ESC para cancelar", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+
+    botao_de_texto("SIM", LARGURA_TELA / 2 - 150 - MeasureText("SIM", 44) / 2, 450, 44, COR_OURO, BOTAO_SIM);
+    botao_de_texto("NÃO", LARGURA_TELA / 2 + 150 - MeasureText("NÃO", 44) / 2, 450, 44, COR_TEXTO_SUAVE, BOTAO_NAO);
+
+    desenhar_texto_centralizado("Clique, ou ENTER para sim e ESC para não", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
 
     terminar_desenho();
 }
 
 EntradaConfiguracoes interface_configuracoes_ler_entrada(void)
 {
-    EntradaConfiguracoes entrada = {0, false, false};
+    EntradaConfiguracoes entrada = {0, false, false, -1};
+    int apontada = botao_sob_o_mouse();
+    int clicada = botao_clicado();
 
     if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
         entrada.movimento = 1;
@@ -175,6 +312,17 @@ EntradaConfiguracoes interface_configuracoes_ler_entrada(void)
 
     entrada.confirmar = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
     entrada.voltar = IsKeyPressed(KEY_ESCAPE);
+
+    if (mouse_se_moveu() && apontada >= BOTAO_RESOLUCAO && apontada < BOTAO_RESOLUCAO + RESOLUCOES_TOTAL)
+        entrada.apontada = apontada - BOTAO_RESOLUCAO;
+
+    if (clicada >= BOTAO_RESOLUCAO && clicada < BOTAO_RESOLUCAO + RESOLUCOES_TOTAL) {
+        entrada.apontada = clicada - BOTAO_RESOLUCAO;
+        entrada.confirmar = true;
+    } else if (clicada == BOTAO_VOLTAR_CONFIGURACOES) {
+        entrada.voltar = true;
+    }
+
     return entrada;
 }
 
@@ -215,9 +363,14 @@ void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int se
         } else {
             desenhar_texto_centralizado(linha, y, 36, cabe ? COR_TEXTO : COR_TEXTO_SUAVE);
         }
+
+        registrar_botao((Rectangle){ (float)((LARGURA_TELA - MeasureText(linha, 36)) / 2 - 40), (float)(y - 6),
+                                     (float)(MeasureText(linha, 36) + 80), 48.0f }, BOTAO_RESOLUCAO + i);
     }
 
-    desenhar_texto_centralizado("W/S ou setas para escolher  -  ENTER para aplicar  -  ESC para voltar",
+    botao_centralizado("VOLTAR", 585, 30, COR_TEXTO_SUAVE, BOTAO_VOLTAR_CONFIGURACOES);
+
+    desenhar_texto_centralizado("Clique em uma opção para aplicar, ou use W/S, ENTER e ESC",
                                 ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
 
     terminar_desenho();
@@ -298,6 +451,44 @@ EntradaMesa interface_mesa_ler_entrada(void)
 
     entrada.continuar = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
     entrada.voltar = IsKeyPressed(KEY_ESCAPE);
+
+    switch (botao_clicado()) {
+        case BOTAO_DESISTIR:
+            entrada.comando = COMANDO_DESISTIR;
+            break;
+
+        case BOTAO_PASSAR_OU_PAGAR:
+            entrada.comando = COMANDO_PASSAR_OU_PAGAR;
+            break;
+
+        case BOTAO_APOSTAR:
+            entrada.comando = COMANDO_APOSTAR;
+            break;
+
+        case BOTAO_ALL_IN:
+            entrada.comando = COMANDO_ALL_IN;
+            break;
+
+        case BOTAO_AUMENTAR:
+            entrada.ajuste_aposta = 1;
+            break;
+
+        case BOTAO_DIMINUIR:
+            entrada.ajuste_aposta = -1;
+            break;
+
+        case BOTAO_CONTINUAR:
+            entrada.continuar = true;
+            break;
+
+        case BOTAO_VOLTAR_DA_MESA:
+            entrada.voltar = true;
+            break;
+
+        default:
+            break;
+    }
+
     return entrada;
 }
 
@@ -434,6 +625,32 @@ static void desenhar_linha(const char *texto, int *y, Color cor)
     *y += 32;
 }
 
+/**
+ * Desenha a linha de ações da vez do jogador, cada ação como um botão ao
+ * lado do outro. O valor da aposta e os botões de menos e mais só aparecem
+ * se ele pode apostar.
+ */
+static void desenhar_acoes_do_jogador(int y, PokerChips aposta_escolhida)
+{
+    char rotulo[64];
+    int x = 40;
+
+    DrawText("SUA VEZ:", x, y, 22, COR_OURO);
+    x += MeasureText("SUA VEZ:", 22) + 24;
+
+    x += botao_de_texto("[F] desistir", x, y, 22, COR_OURO, BOTAO_DESISTIR) + 24;
+    x += botao_de_texto("[C] passar ou pagar", x, y, 22, COR_OURO, BOTAO_PASSAR_OU_PAGAR) + 24;
+
+    if (aposta_escolhida > 0) {
+        snprintf(rotulo, sizeof rotulo, "[R] apostar %lld", (long long)aposta_escolhida);
+        x += botao_de_texto(rotulo, x, y, 22, COR_OURO, BOTAO_APOSTAR) + 12;
+        x += botao_de_texto("[-]", x, y, 22, COR_OURO, BOTAO_DIMINUIR) + 12;
+        x += botao_de_texto("[+]", x, y, 22, COR_OURO, BOTAO_AUMENTAR) + 24;
+    }
+
+    botao_de_texto("[A] all-in", x, y, 22, COR_OURO, BOTAO_ALL_IN);
+}
+
 void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida)
 {
     const Mao *mao = &partida->mao;
@@ -485,48 +702,41 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
-            if (aposta_escolhida > 0) {
-                snprintf(linha, sizeof linha,
-                         "SUA VEZ: [F] desistir  [C] passar ou pagar  [R] apostar %lld (setas ajustam)  [A] all-in",
-                         (long long)aposta_escolhida);
-            } else {
-                snprintf(linha, sizeof linha, "SUA VEZ: [F] desistir  [C] passar ou pagar  [A] all-in");
-            }
+            desenhar_acoes_do_jogador(y, aposta_escolhida);
             break;
 
         case PARTIDA_VEZ_DO_ADVERSARIO:
-            snprintf(linha, sizeof linha, "Vez do adversário...");
+            DrawText("Vez do adversário...", 40, y, 22, COR_OURO);
             break;
 
         case PARTIDA_MAO_ENCERRADA:
-            snprintf(linha, sizeof linha, "Mão encerrada. ENTER para a próxima mão");
+            botao_de_texto("Mão encerrada. ENTER ou clique aqui para a próxima mão", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_CONFRONTO_VENCIDO:
-            snprintf(linha, sizeof linha, "Você venceu o confronto! ENTER para o próximo adversário");
+            botao_de_texto("Você venceu o confronto! ENTER ou clique aqui para o próximo adversário", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_JOGADOR_FALIDO:
-            snprintf(linha, sizeof linha, "Você faliu. ENTER para recomeçar");
+            botao_de_texto("Você faliu. ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_CAMPEAO:
-            snprintf(linha, sizeof linha, "Você é o campeão! ENTER para recomeçar");
+            botao_de_texto("Você é o campeão! ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_VAZIA:
-            snprintf(linha, sizeof linha, "Sem partida");
+            DrawText("Sem partida", 40, y, 22, COR_OURO);
             break;
     }
 
-    desenhar_linha(linha, &y, COR_OURO);
-    y += 16;
+    y += 32 + 16;
 
     for (int i = 0; i < eventos_registrados; i++) {
         desenhar_linha(registro_de_eventos[i], &y, COR_TEXTO_SUAVE);
     }
 
-    DrawText("ESC volta ao menu", 40, ALTURA_TELA - 40, 20, COR_TEXTO_SUAVE);
+    botao_de_texto("ESC ou clique aqui volta ao menu", 40, ALTURA_TELA - 40, 20, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
 
     terminar_desenho();
 }
