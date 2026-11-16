@@ -10,6 +10,7 @@
 
 static char registro_de_eventos[EVENTOS_NO_REGISTRO][TAMANHO_LINHA];
 static int eventos_registrados;
+static Texture2D textura_menu = { 0 };
 
 static const Color COR_FUNDO = { 12, 46, 31, 255 };
 static const Color COR_OURO = { 212, 175, 55, 255 };
@@ -189,12 +190,16 @@ static void terminar_desenho(void)
 void interface_iniciar(void)
 {
     InitWindow(LARGURA_TELA, ALTURA_TELA, TITULO_JANELA);
+    textura_menu = LoadTexture("assets/images/menu.png");
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 }
 
 void interface_encerrar(void)
 {
+    if (textura_menu.id != 0)
+        UnloadTexture(textura_menu);
+
     CloseWindow();
 }
 
@@ -242,9 +247,16 @@ void interface_menu_desenhar(OpcaoMenu selecionada, bool continuar_disponivel, c
 {
     comecar_desenho();
 
-    desenhar_texto_centralizado("DEAD MAN'S BLUFF", 150, 88, COR_OURO);
-    desenhar_texto_centralizado("um roguelike de pôquer", 255, 28, COR_TEXTO);
-    DrawRectangle((LARGURA_TELA - 320) / 2, 305, 320, 3, COR_OURO);
+    if (textura_menu.id != 0) {
+        DrawTexturePro(
+            textura_menu,
+            (Rectangle){ 0, 0, (float)textura_menu.width, (float)textura_menu.height },
+            (Rectangle){ 0, 0, (float)LARGURA_TELA, (float)ALTURA_TELA },
+            (Vector2){ 0, 0 },
+            0.0f,
+            WHITE
+        );
+    }
 
     for (int i = 0; i < MENU_TOTAL; i++) {
         int y = 345 + i * 62;
