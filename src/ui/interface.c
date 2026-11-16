@@ -11,6 +11,7 @@
 static char registro_de_eventos[EVENTOS_NO_REGISTRO][TAMANHO_LINHA];
 static int eventos_registrados;
 static Texture2D textura_menu = { 0 };
+static Texture2D textura_vitoria = { 0 };
 
 static const Color COR_FUNDO = { 12, 46, 31, 255 };
 static const Color COR_OURO = { 212, 175, 55, 255 };
@@ -191,6 +192,7 @@ void interface_iniciar(void)
 {
     InitWindow(LARGURA_TELA, ALTURA_TELA, TITULO_JANELA);
     textura_menu = LoadTexture("assets/images/menu.png");
+    textura_vitoria = LoadTexture("assets/images/vitoria.png");
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 }
@@ -199,6 +201,9 @@ void interface_encerrar(void)
 {
     if (textura_menu.id != 0)
         UnloadTexture(textura_menu);
+
+    if (textura_vitoria.id != 0)
+        UnloadTexture(textura_vitoria);
 
     CloseWindow();
 }
@@ -675,6 +680,22 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     int y = 24;
 
     comecar_desenho();
+
+    if (partida->situacao == PARTIDA_CONFRONTO_VENCIDO && textura_vitoria.id != 0) {
+        DrawTexturePro(
+            textura_vitoria,
+            (Rectangle){ 0, 0, (float)textura_vitoria.width, (float)textura_vitoria.height },
+            (Rectangle){ 0, 0, (float)LARGURA_TELA, (float)ALTURA_TELA },
+            (Vector2){ 0, 0 },
+            0.0f,
+            WHITE
+        );
+
+        botao_de_texto("CONTINUAR", 100, 540, 28, COR_OURO, BOTAO_CONTINUAR);
+        botao_de_texto("MENU PRINCIPAL", 100, 590, 24, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
+        terminar_desenho();
+        return;
+    }
 
     snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s     MÃO %d     BLINDS %lld/%lld",
              partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
