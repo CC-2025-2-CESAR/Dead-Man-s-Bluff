@@ -15,12 +15,12 @@ static const int CHANCE_BASE[PROB_TRAPACA_TOTAL] = {
 };
 
 // Quanto a chance base aumenta a CADA USO repetido na mesma mesa (em %)
-static const int INCREMENTO_POR_USO[PROB_TRAPACA_TOTAL] = {
-    10, // SPIKE_DRINK 
-    10, // CUMPLICE
-    2.75,  // MARCAR_CARTA 
-    10, // SUBORNO_DEALER
-    5  // CARTA_MANGA
+static const float INCREMENTO_POR_USO[PROB_TRAPACA_TOTAL] = {
+    8.0f, // SPIKE_DRINK 
+    10.0f, // CUMPLICE
+    2.75f, // MARCAR_CARTA 
+    7.0f, // SUBORNO_DEALER
+    5.0f   // CARTA_MANGA
 };
 
 // ------------------------------------------------------------------
@@ -60,24 +60,26 @@ void prob_registrar_uso_trapaca(SistemaRisco *risco, TipoTrapacaProb tipo) {
     risco->usos_trapaca[tipo]++;
 }
 
-int prob_calcular_chance_descoberta(const SistemaRisco *risco, TipoTrapacaProb tipo, ProbPerfilIA perfil) {
+int prob_calcular_chance_descoberta(const SistemaRisco *risco, TipoTrapacaProb tipo, ProbPerfilIA perfil, bool oponente_embriagado) {
     if (!risco || tipo < 0 || tipo >= PROB_TRAPACA_TOTAL) return 100;
     
     // 1. Calcula a chance acumulada (Base + (Usos * Incremento))
-    int chance_acumulada = CHANCE_BASE[tipo] + (risco->usos_trapaca[tipo] * INCREMENTO_POR_USO[tipo]);
+    float chance_acumulada = CHANCE_BASE[tipo] + (risco->usos_trapaca[tipo] * INCREMENTO_POR_USO[tipo]);
     
-    // 2. Define o multiplicador da IA
+    // 2. Define o multiplicador da IA baseado no estado (Sóbrio ou Embriagado)
     double multiplicador = 1.0;
-    switch (perfil) {
-        case PROB_IA_AGRESSIVO:
-            multiplicador = 1.2;
-            break;
-        case PROB_IA_MEDROSO:
-            multiplicador = 1.5;
-            break;
-        case PROB_IA_DESCONFIADO:
-            multiplicador = 2.5;
-            break;
+    if (oponente_embriagado) {
+        switch (perfil) {
+            case PROB_IA_AGRESSIVO:   multiplicador = 1.0; break;
+            case PROB_IA_MEDROSO:     multiplicador = 1.2; break;
+            case PROB_IA_DESCONFIADO: multiplicador = 1.375; break;
+        }
+    } else {
+        switch (perfil) {
+            case PROB_IA_AGRESSIVO:   multiplicador = 1.2; break;
+            case PROB_IA_MEDROSO:     multiplicador = 1.5; break;
+            case PROB_IA_DESCONFIADO: multiplicador = 2.5; break;
+        }
     }
     
     // 3. Aplica o multiplicador
@@ -94,10 +96,10 @@ int prob_calcular_chance_descoberta(const SistemaRisco *risco, TipoTrapacaProb t
 bool prob_jogar_roleta_russa(SistemaRisco *risco) {
     if (!risco) return false;
     
-    // O tambor do revólver tem 6 câmaras. Sorteia um número de 1 a 6.
+    // O tambor do revólver tem 6 câmaras. Sorteia um número de 1 a 6
     int camara_sorteada = (rand() % 6) + 1;
     
-    // Se a câmara sorteada for menor ou igual ao número de balas, a arma dispara.
+    // Se a câmara sorteada for menor ou igual ao número de balas, a arma dispara
     if (camara_sorteada <= risco->balas_roleta) {
         return true; // Morreu
     }

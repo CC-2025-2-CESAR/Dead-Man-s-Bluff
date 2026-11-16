@@ -15,9 +15,9 @@ typedef enum {
 
 // Personalidades da IA para aplicar o multiplicador de desconfiança
 typedef enum {
-    PROB_IA_AGRESSIVO = 0,  // Multiplicador: 1.2x
-    PROB_IA_MEDROSO,        // Multiplicador: 1.5x
-    PROB_IA_DESCONFIADO     // Multiplicador: 2.5x
+    PROB_IA_AGRESSIVO = 0,  // Multiplicador: 1.2x (Sóbrio) / 1.0x (Bêbado)
+    PROB_IA_MEDROSO,        // Multiplicador: 1.5x (Sóbrio) / 1.2x (Bêbado)
+    PROB_IA_DESCONFIADO     // Multiplicador: 2.5x (Sóbrio) / 1.375x (Bêbado)
 } ProbPerfilIA;
 
 // Estrutura que mantém o estado de risco e punições do jogador
@@ -49,10 +49,10 @@ void prob_resetar_usos(SistemaRisco *risco);
 void prob_registrar_uso_trapaca(SistemaRisco *risco, TipoTrapacaProb tipo);
 
 // Calcula a porcentagem final de chance do jogador ser descoberto (0 a 100)
-// Leva em conta a chance base, os usos repetidos e a personalidade do oponente
-int prob_calcular_chance_descoberta(const SistemaRisco *risco, TipoTrapacaProb tipo, ProbPerfilIA perfil);
+// Leva em conta a chance base, os usos repetidos, a personalidade do oponente e se ele está embriagado
+int prob_calcular_chance_descoberta(const SistemaRisco *risco, TipoTrapacaProb tipo, ProbPerfilIA perfil, bool oponente_embriagado);
 
-// Roda o minigame mortal da roleta russa.
+// Roda o minigame da roleta russa.
 // Retorna 'true' se o jogador MORREU, ou 'false' se SOBREVIVEU.
 // Caso sobreviva, adiciona 1 bala na câmara e reseta o uso das trapaças automaticamente.
 bool prob_jogar_roleta_russa(SistemaRisco *risco);
