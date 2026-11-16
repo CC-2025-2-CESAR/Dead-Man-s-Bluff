@@ -2,7 +2,7 @@
 #include <stdlib.h> 
 
 // ------------------------------------------------------------------
-// Configurações de Balanceamento (Fáceis de alterar para testes)
+// Configurações de Balanceamento 
 // ------------------------------------------------------------------
 
 // Chance base inicial de ser pego em cada trapaça (em %)
