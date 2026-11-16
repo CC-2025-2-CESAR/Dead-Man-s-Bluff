@@ -12,7 +12,9 @@
 /**
  * Escreve os dados guardados de uma partida em texto. O formato tem uma
  * linha de cabeçalho com a versão, uma linha por grupo de dados (torneio,
- * mão, IA, cartas, board, fichas) e uma linha por ação, e termina em "fim".
+ * mão, IA, risco, cartas, board, fichas) e uma linha por entrada do registro
+ * da mão (uma ação do motor ou o gatilho da roleta), e termina em "fim".
+ * Salvamentos de outra versão do formato são recusados.
  *
  * @param salva dados a escrever.
  * @param saida recebe o texto, terminado em '\0'.

@@ -19,6 +19,7 @@
  * EVENTO_BOARD_REVELADO: nova rua do board (flop, turn ou river).
  * EVENTO_SHOWDOWN: as mãos são reveladas; só ocorre se ninguém desistiu.
  * EVENTO_POTE_PAGO: o pote foi pago e a mão terminou.
+ * EVENTO_ROLETA: o jogador puxou o gatilho da roleta russa.
  */
 typedef enum {
     EVENTO_MAO_INICIADA = 0,
@@ -26,7 +27,8 @@ typedef enum {
     EVENTO_ACAO,
     EVENTO_BOARD_REVELADO,
     EVENTO_SHOWDOWN,
-    EVENTO_POTE_PAGO
+    EVENTO_POTE_PAGO,
+    EVENTO_ROLETA
 } TipoEvento;
 
 /**
@@ -121,6 +123,22 @@ typedef struct {
 } EventoPotePago;
 
 /**
+ * Dados de EVENTO_ROLETA.
+ *
+ * por_falencia: true se a roleta veio de uma falência; false se veio de uma
+ * trapaça descoberta.
+ * morreu: true se a arma disparou e o jogador morreu.
+ * balas_antes: balas no tambor antes do gatilho.
+ * balas_depois: balas no tambor depois; sobreviver acrescenta uma.
+ */
+typedef struct {
+    bool por_falencia;
+    bool morreu;
+    int balas_antes;
+    int balas_depois;
+} EventoRoleta;
+
+/**
  * Um evento do jogo. O campo tipo diz qual membro da união vale.
  */
 typedef struct {
@@ -132,6 +150,7 @@ typedef struct {
         EventoBoardRevelado board;
         EventoShowdown showdown;
         EventoPotePago pote;
+        EventoRoleta roleta;
     };
 } EventoJogo;
 

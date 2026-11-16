@@ -63,6 +63,7 @@ static void salvar_progresso(const Mesa *mesa)
         return;
 
     if (mesa->partida.situacao == PARTIDA_JOGADOR_FALIDO ||
+        mesa->partida.situacao == PARTIDA_JOGADOR_MORTO ||
         mesa->partida.situacao == PARTIDA_CAMPEAO)
         salvamento_apagar(SALVAMENTO_ARQUIVO);
     else if (partida_exportar(&mesa->partida, &salva))
@@ -248,7 +249,15 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
             }
             break;
 
+        case PARTIDA_ROLETA:
+            if (entrada->continuar) {
+                avancou = partida_puxar_gatilho(partida);
+                mesa->espera_do_adversario = 0.0;
+            }
+            break;
+
         case PARTIDA_JOGADOR_FALIDO:
+        case PARTIDA_JOGADOR_MORTO:
         case PARTIDA_CAMPEAO:
             if (entrada->continuar)
                 iniciar_partida(mesa);

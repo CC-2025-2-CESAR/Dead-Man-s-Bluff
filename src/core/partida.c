@@ -51,7 +51,12 @@ static bool atualizar_situacao(Partida *partida)
             break;
 
         case TORNEIO_JOGADOR_FALIDO:
-            partida->situacao = PARTIDA_JOGADOR_FALIDO;
+            if (partida->torneio.recuperacoes < PARTIDA_RECUPERACOES_MAXIMAS) {
+                partida->situacao = PARTIDA_ROLETA;
+                partida->roleta_motivo = ROLETA_FALENCIA;
+            } else {
+                partida->situacao = PARTIDA_JOGADOR_FALIDO;
+            }
             break;
 
         case TORNEIO_CAMPEAO:
@@ -68,10 +73,14 @@ static bool atualizar_situacao(Partida *partida)
 
 /**
  * Abre a mão do torneio atual com a fila de eventos da partida e ajusta a
- * situação da partida a ela.
+ * situação da partida a ela. O registro da mão recomeça vazio.
  */
 static bool abrir_mao(Partida *partida)
 {
+    partida->roleta_motivo = ROLETA_NENHUMA;
+    partida->quantidade_no_registro = 0;
+    partida->registro_perdido = false;
+
     return mao_iniciar_com_eventos(
                &partida->mao,
                &partida->torneio,
@@ -80,11 +89,11 @@ static bool abrir_mao(Partida *partida)
 }
 
 /**
- * Sorteia a semente do embaralhamento de uma mão com o gerador da partida
- * (splitmix64), que avança o estado a cada sorteio. O rand global não serve:
- * ele é compartilhado entre partidas e dá só 15 bits no Windows.
+ * Sorteia o próximo número de um gerador da partida (splitmix64), que avança
+ * o estado a cada sorteio. O rand global não serve: ele é compartilhado entre
+ * partidas e dá só 15 bits no Windows.
  */
-static unsigned sortear_semente_da_mao(uint64_t *estado)
+static unsigned proximo_sorteio(uint64_t *estado)
 {
     uint64_t z;
 
@@ -97,15 +106,50 @@ static unsigned sortear_semente_da_mao(uint64_t *estado)
 }
 
 /**
- * Inicia a mão seguinte do torneio. Guarda o torneio como está e sorteia a
- * semente do baralho da mão, para que ela possa ser refeita depois.
+ * Inicia a mão seguinte do torneio. Guarda o torneio e o risco como estão e
+ * sorteia a semente do baralho da mão, para que ela possa ser refeita depois.
  */
 static bool iniciar_mao(Partida *partida)
 {
     partida->torneio_da_mao = partida->torneio;
-    partida->semente_da_mao = sortear_semente_da_mao(&partida->estado_das_sementes);
+    partida->risco_da_mao = partida->risco;
+    partida->estado_do_risco_da_mao = partida->estado_do_risco;
+    partida->semente_da_mao = proximo_sorteio(&partida->estado_das_sementes);
     srand(partida->semente_da_mao);
     return abrir_mao(partida);
+}
+
+/** Acrescenta uma entrada ao registro da mão, ou marca o registro como perdido se cheio. */
+static void registrar(Partida *partida, RegistroDaMao entrada)
+{
+    if (partida->quantidade_no_registro >= PARTIDA_REGISTRO_MAXIMO) {
+        partida->registro_perdido = true;
+        return;
+    }
+
+    partida->registro[partida->quantidade_no_registro++] = entrada;
+}
+
+/** Registra uma ação do motor que acabou de ser aplicada. */
+static void registrar_acao(Partida *partida, PokerAction acao)
+{
+    registrar(partida, (RegistroDaMao){REGISTRO_ACAO, acao});
+}
+
+/**
+ * Aplica uma ação do motor na mão, registra e ajusta a situação da partida.
+ * Serve ao jogador e a quem refaz a mão guardada.
+ */
+static PokerStatus aplicar_acao(Partida *partida, PokerAction acao)
+{
+    PokerStatus status = mao_agir(&partida->mao, acao);
+
+    if (status != POKER_OK) {
+        return status;
+    }
+
+    registrar_acao(partida, acao);
+    return atualizar_situacao(partida) ? POKER_OK : POKER_ERR_STATE;
 }
 
 /**
@@ -140,6 +184,8 @@ bool partida_iniciar(Partida *partida, unsigned semente)
 
     preparar_partida(partida, rng_acao.state, rng_equidade.state);
     partida->estado_das_sementes = (uint64_t)semente * 4u + 5u;
+    partida->estado_do_risco = (uint64_t)semente * 6u + 11u;
+    prob_inicializar(&partida->risco);
     torneio_iniciar(&partida->torneio);
     partida->ia.style = estilo_do_confronto(partida->torneio.confronto);
 
@@ -163,8 +209,6 @@ void partida_encerrar(Partida *partida)
 
 PokerStatus partida_agir_jogador(Partida *partida, PokerAction acao)
 {
-    PokerStatus status;
-
     if (partida == NULL) {
         return POKER_ERR_ARGUMENT;
     }
@@ -175,13 +219,7 @@ PokerStatus partida_agir_jogador(Partida *partida, PokerAction acao)
             : POKER_ERR_STATE;
     }
 
-    status = mao_agir(&partida->mao, acao);
-
-    if (status != POKER_OK) {
-        return status;
-    }
-
-    return atualizar_situacao(partida) ? POKER_OK : POKER_ERR_STATE;
+    return aplicar_acao(partida, acao);
 }
 
 PokerStatus partida_comando_jogador(Partida *partida, ComandoJogador comando, PokerChips total)
@@ -248,6 +286,7 @@ PokerChips partida_ajustar_aposta(const Partida *partida, PokerChips atual, int 
 PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_out)
 {
     PokerStatus status;
+    size_t acoes_antes;
 
     if (partida == NULL) {
         return POKER_ERR_ARGUMENT;
@@ -259,6 +298,7 @@ PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_
             : POKER_ERR_STATE;
     }
 
+    acoes_antes = partida->mao.quantidade_de_acoes;
     status = mao_ia_agir(
         &partida->mao,
         &partida->ia,
@@ -268,6 +308,13 @@ PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_
 
     if (status != POKER_OK) {
         return status;
+    }
+
+    /* A mão guarda a ação que a IA escolheu; é de lá que o registro a copia. */
+    if (partida->mao.quantidade_de_acoes > acoes_antes) {
+        registrar_acao(partida, partida->mao.acoes[acoes_antes]);
+    } else {
+        partida->registro_perdido = true;
     }
 
     return atualizar_situacao(partida) ? POKER_OK : POKER_ERR_STATE;
@@ -284,6 +331,7 @@ bool partida_continuar(Partida *partida)
             return false;
         }
 
+        prob_avancar_mesa(&partida->risco);
         partida->ia.style = estilo_do_confronto(partida->torneio.confronto);
         return iniciar_mao(partida);
     }
@@ -293,6 +341,40 @@ bool partida_continuar(Partida *partida)
     }
 
     return false;
+}
+
+bool partida_puxar_gatilho(Partida *partida)
+{
+    EventoJogo evento = {.tipo = EVENTO_ROLETA};
+    bool morreu;
+
+    if (partida == NULL || partida->situacao != PARTIDA_ROLETA) {
+        return false;
+    }
+
+    evento.roleta.por_falencia = partida->roleta_motivo == ROLETA_FALENCIA;
+    evento.roleta.balas_antes = partida->risco.balas_roleta;
+
+    /* A roleta sorteia pelo rand; semeá-lo com o gerador da partida a deixa reproduzível. */
+    srand(proximo_sorteio(&partida->estado_do_risco));
+    morreu = prob_jogar_roleta_russa(&partida->risco);
+
+    evento.roleta.morreu = morreu;
+    evento.roleta.balas_depois = partida->risco.balas_roleta;
+    fila_eventos_adicionar(&partida->eventos, &evento);
+    registrar(partida, (RegistroDaMao){REGISTRO_GATILHO, {POKER_FOLD, 0}});
+
+    if (morreu) {
+        partida->situacao = PARTIDA_JOGADOR_MORTO;
+    } else if (partida->roleta_motivo == ROLETA_FALENCIA) {
+        torneio_recuperar_jogador(&partida->torneio);
+        partida->situacao = PARTIDA_MAO_ENCERRADA;
+    } else {
+        partida->situacao = PARTIDA_VEZ_DO_JOGADOR;
+    }
+
+    partida->roleta_motivo = ROLETA_NENHUMA;
+    return true;
 }
 
 PokerStatus partida_acoes_legais(const Partida *partida, PokerLegalActions *out)
@@ -339,11 +421,13 @@ static bool situacao_continuavel(PartidaSituacao situacao)
         case PARTIDA_VEZ_DO_ADVERSARIO:
         case PARTIDA_MAO_ENCERRADA:
         case PARTIDA_CONFRONTO_VENCIDO:
+        case PARTIDA_ROLETA:
             return true;
 
         case PARTIDA_VAZIA:
         case PARTIDA_JOGADOR_FALIDO:
         case PARTIDA_CAMPEAO:
+        case PARTIDA_JOGADOR_MORTO:
             break;
     }
 
@@ -357,7 +441,7 @@ bool partida_exportar(const Partida *partida, PartidaSalva *salva)
 
     if (partida == NULL || salva == NULL ||
         !situacao_continuavel(partida->situacao) ||
-        partida->mao.acoes_perdidas) {
+        partida->registro_perdido) {
         return false;
     }
 
@@ -367,6 +451,8 @@ bool partida_exportar(const Partida *partida, PartidaSalva *salva)
     copia.estado_das_sementes = partida->estado_das_sementes;
     copia.rng_acao = partida->rng_acao.state;
     copia.rng_equidade = partida->rng_equidade.state;
+    copia.risco = partida->risco_da_mao;
+    copia.estado_do_risco = partida->estado_do_risco_da_mao;
     copia.adversario_embriagado = partida->adversario_embriagado;
     copia.situacao = partida->situacao;
     memcpy(copia.cartas, mao->cartas, sizeof copia.cartas);
@@ -374,10 +460,27 @@ bool partida_exportar(const Partida *partida, PartidaSalva *salva)
     copia.cartas_no_board = mao->cartas_no_board;
     copia.fichas[0] = mao->mesa.player[0].chips;
     copia.fichas[1] = mao->mesa.player[1].chips;
-    copia.quantidade_de_acoes = mao->quantidade_de_acoes;
-    memcpy(copia.acoes, mao->acoes, mao->quantidade_de_acoes * sizeof mao->acoes[0]);
+    copia.quantidade_no_registro = partida->quantidade_no_registro;
+    memcpy(copia.registro, partida->registro,
+           partida->quantidade_no_registro * sizeof partida->registro[0]);
 
     *salva = copia;
+    return true;
+}
+
+/** Confere se o risco guardado está dentro do que o jogo pode produzir. */
+static bool risco_valido(const SistemaRisco *risco)
+{
+    if (risco->balas_roleta < 1 || risco->balas_roleta > 6) {
+        return false;
+    }
+
+    for (int i = 0; i < PROB_TRAPACA_TOTAL; i++) {
+        if (risco->usos_trapaca[i] < 0 || risco->usos_trapaca[i] > PARTIDA_USOS_MAXIMOS) {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -395,8 +498,9 @@ static bool dados_validos(const PartidaSalva *salva)
             torneio->dealer == TORNEIO_ASSENTO_ADVERSARIO) &&
            torneio->recuperacoes >= 0 &&
            salva->rng_acao != 0 && salva->rng_equidade != 0 &&
+           risco_valido(&salva->risco) &&
            situacao_continuavel(salva->situacao) &&
-           salva->quantidade_de_acoes <= MAO_ACOES_MAXIMAS &&
+           salva->quantidade_no_registro <= PARTIDA_REGISTRO_MAXIMO &&
            salva->cartas_no_board <= MAO_CARTAS_NO_BOARD;
 }
 
@@ -452,16 +556,33 @@ bool partida_restaurar(Partida *partida, const PartidaSalva *salva)
     partida->torneio_da_mao = salva->torneio;
     partida->semente_da_mao = salva->semente_da_mao;
     partida->estado_das_sementes = salva->estado_das_sementes;
+    partida->risco = salva->risco;
+    partida->estado_do_risco = salva->estado_do_risco;
+    partida->risco_da_mao = salva->risco;
+    partida->estado_do_risco_da_mao = salva->estado_do_risco;
     partida->adversario_embriagado = salva->adversario_embriagado;
     partida->ia.style = estilo_do_confronto(partida->torneio.confronto);
 
     srand(salva->semente_da_mao);
     refeita = abrir_mao(partida);
 
-    for (size_t i = 0; refeita && i < salva->quantidade_de_acoes; i++) {
-        refeita = partida->mao.situacao == MAO_EM_ANDAMENTO &&
-                  mao_agir(&partida->mao, salva->acoes[i]) == POKER_OK &&
-                  atualizar_situacao(partida);
+    for (size_t i = 0; refeita && i < salva->quantidade_no_registro; i++) {
+        const RegistroDaMao *entrada = &salva->registro[i];
+
+        switch (entrada->tipo) {
+            case REGISTRO_ACAO:
+                refeita = partida->mao.situacao == MAO_EM_ANDAMENTO &&
+                          aplicar_acao(partida, entrada->acao) == POKER_OK;
+                break;
+
+            case REGISTRO_GATILHO:
+                refeita = partida_puxar_gatilho(partida);
+                break;
+
+            default:
+                refeita = false;
+                break;
+        }
     }
 
     if (refeita && mao_igual_a_guardada(partida, salva)) {

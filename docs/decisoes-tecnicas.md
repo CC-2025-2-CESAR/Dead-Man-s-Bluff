@@ -76,10 +76,10 @@ Quem chama o quê, em ordem:
 
 - `Partida` junta o torneio, a `Mao`, a fila de eventos e a IA do adversário. Zere com `Partida partida = {0};` e não copie a struct.
 - `partida_iniciar(&partida, semente)` chama `srand` com a semente, prepara o torneio e a IA do primeiro adversário e inicia a primeira mão. A mesma semente com as mesmas ações reproduz a mesma partida.
-- Olhe `partida.situacao` a cada quadro. Com `PARTIDA_VEZ_DO_JOGADOR`, chame `partida_agir_jogador(&partida, acao)` (`partida_acoes_legais` diz o que pode). Com `PARTIDA_VEZ_DO_ADVERSARIO`, chame `partida_agir_adversario(&partida, NULL)` no ritmo que a UI quiser, por exemplo depois de uma pausa, para o adversário não responder de imediato. Com `PARTIDA_MAO_ENCERRADA` ou `PARTIDA_CONFRONTO_VENCIDO`, chame `partida_continuar(&partida)`. `PARTIDA_JOGADOR_FALIDO` e `PARTIDA_CAMPEAO` encerram a partida.
+- Olhe `partida.situacao` a cada quadro. Com `PARTIDA_VEZ_DO_JOGADOR`, chame `partida_agir_jogador(&partida, acao)` (`partida_acoes_legais` diz o que pode). Com `PARTIDA_VEZ_DO_ADVERSARIO`, chame `partida_agir_adversario(&partida, NULL)` no ritmo que a UI quiser, por exemplo depois de uma pausa, para o adversário não responder de imediato. Com `PARTIDA_MAO_ENCERRADA` ou `PARTIDA_CONFRONTO_VENCIDO`, chame `partida_continuar(&partida)`. Com `PARTIDA_ROLETA`, chame `partida_puxar_gatilho(&partida)` quando o jogador pedir. `PARTIDA_JOGADOR_FALIDO` (sem recuperações sobrando), `PARTIDA_JOGADOR_MORTO` e `PARTIDA_CAMPEAO` encerram a partida.
 - O resultado de cada mão já entra no torneio dentro da chamada que a encerra, e os eventos (3.3) ficam em `partida.eventos` para a UI consumir a cada quadro.
 - O perfil da IA muda a cada confronto: Agressivo, Medroso e Desconfiado. `partida_nome_do_adversario` dá o nome para a tela. O modo embriagado fica em `partida.adversario_embriagado`, que as trapaças vão ligar; hoje é sempre falso.
-- A falência hoje encerra a partida. A roleta (Gabriel) entra em `PARTIDA_JOGADOR_FALIDO`, chamando `torneio_recuperar_jogador` se o jogador sobreviver.
+- **Roleta:** quando o jogador zera, a partida vai para `PARTIDA_ROLETA` (com `partida.roleta_motivo == ROLETA_FALENCIA`) e espera o gatilho. `partida_puxar_gatilho` sorteia com um gerador da `Partida` (`estado_do_risco`), de modo que refazer a mão dá o mesmo resultado. Se o jogador morre, a situação vira `PARTIDA_JOGADOR_MORTO`. Se sobrevive, entra uma bala no tambor, o contador de usos das trapaças zera, o core chama `torneio_recuperar_jogador` e a situação volta a `PARTIDA_MAO_ENCERRADA`, para o jogador seguir com `partida_continuar`. Depois de `PARTIDA_RECUPERACOES_MAXIMAS` (3) recuperações, a próxima falência já é definitiva (`PARTIDA_JOGADOR_FALIDO`), sem roleta. Ao vencer um confronto, `partida_continuar` tira uma bala (mínimo 1). As regras estão na seção 4, e o risco (`SistemaRisco`) vive na `Partida`.
 - Os testes jogam 120 partidas inteiras com três jogadores automáticos (passivo, all-in e aleatório), conferindo a conservação das fichas, o perfil da IA de cada confronto, um `EVENTO_POTE_PAGO` por mão e o mesmo resultado para a mesma semente.
 
 ### 3.2 Fronteiras de responsabilidade
@@ -103,11 +103,12 @@ Quem chama o quê, em ordem:
 | `EVENTO_BOARD_REVELADO` | flop, turn e river, inclusive quando o all-in vem antes do river | rua e cartas novas |
 | `EVENTO_SHOWDOWN` | só se ninguém desistiu | cartas e melhor mão de cada assento |
 | `EVENTO_POTE_PAGO` | fim da mão | vencedor (ou empate), pote, prêmio, devolução e fichas finais |
+| `EVENTO_ROLETA` | o jogador puxou o gatilho | se veio de falência ou de trapaça descoberta, se morreu, e as balas antes e depois |
 
 - Para ligar a fila, use `mao_iniciar_com_eventos(&mao, &torneio, &fila)`. `mao_iniciar` continua valendo e não registra nada.
 - Os eventos saem na ordem em que acontecem. No all-in antes do river vêm `EVENTO_ACAO`, os três `EVENTO_BOARD_REVELADO`, `EVENTO_SHOWDOWN` e `EVENTO_POTE_PAGO`, todos dentro da mesma chamada de `mao_agir`; o ritmo da animação é da UI.
 - A fila é circular, com 256 eventos. A UI deve consumi-la a cada quadro com `fila_eventos_retirar`. Se ela encher, o evento novo é descartado e `fila.perdidos` aumenta; nesse caso a UI redesenha a mesa a partir do estado da mão.
-- Ainda não existem eventos de trapaça aplicada, trapaça descoberta e roleta. Quem implementar essas mecânicas (Gabriel) acrescenta os tipos em `eventos.h`.
+- Ainda não existem eventos de trapaça aplicada e de trapaça descoberta; entram junto com a ligação das trapaças ao core.
 
 ### 3.4 Contrato da interface (Matheus)
 
@@ -134,17 +135,17 @@ Quem chama o quê, em ordem:
 
 ### 3.5 Salvar e continuar
 
-**[Decidido]** O jogo guarda a partida em `progresso.sav` (pasta de onde o jogo foi aberto, fora do git) e o menu oferece Continuar. O salvamento é automático: a cada jogada e a cada mão nova, ao voltar ao menu e ao sair. Quando a partida acaba, por falência ou título, o arquivo é apagado. Começar um jogo novo com um salvo pede confirmação.
+**[Decidido]** O jogo guarda a partida em `progresso.sav` (pasta de onde o jogo foi aberto, fora do git) e o menu oferece Continuar. O salvamento é automático: a cada jogada e a cada mão nova, ao voltar ao menu e ao sair. Quando a partida acaba, por falência definitiva, morte na roleta ou título, o arquivo é apagado. Começar um jogo novo com um salvo pede confirmação.
 
 Para continuar **no meio de uma mão**, o que se guarda não é uma cópia da memória, e sim o suficiente para **refazer a mão**:
 
-- `partida_exportar` junta numa `PartidaSalva` o torneio **no início da mão atual**, a semente do baralho da mão, o estado do gerador das sementes, os estados dos geradores da IA, o modo embriagado e a lista de ações já aplicadas (a `Mao` as registra em `acoes`, até `MAO_ACOES_MAXIMAS`).
-- `partida_restaurar` volta o torneio ao início da mão, embaralha com a mesma semente, reaplica as ações com `mao_agir` e confere se cartas, fichas e situação batem com os guardados. Se não baterem, recusa, e o jogo avisa que não foi possível carregar.
+- `partida_exportar` junta numa `PartidaSalva` o torneio **no início da mão atual**, a semente do baralho da mão, o estado do gerador das sementes, os estados dos geradores da IA, o risco (balas e usos das trapaças) e o gerador da roleta **no início da mão**, o modo embriagado e o **registro da mão**: tudo o que aconteceu nela, na ordem (cada ação do motor, do jogador ou da IA, e cada gatilho da roleta), até `PARTIDA_REGISTRO_MAXIMO` entradas.
+- `partida_restaurar` volta o torneio e o risco ao início da mão, embaralha com a mesma semente, reaplica o registro (`mao_agir` para as ações, `partida_puxar_gatilho` para o gatilho) e confere se cartas, fichas e situação batem com os guardados. A roleta também pode ser guardada: na situação `PARTIDA_ROLETA` o jogo continua esperando o gatilho. Se não baterem, recusa, e o jogo avisa que não foi possível carregar.
 - Cada mão sorteia a própria semente com um gerador da `Partida` (não com o `rand` global) e chama `srand` com ela logo antes de embaralhar. Por isso duas partidas no mesmo programa não se atrapalham, e o baralho de uma mão sai igual ao ser refeito.
-- O formato do arquivo é texto simples, com versão (`DMBSAVE 1`), e o leitor confere cada campo; arquivo cortado, alterado ou de outra versão é recusado sem derrubar o jogo (`src/core/salvamento.*`).
+- O formato do arquivo é texto simples, com versão (`DMBSAVE 2`), e o leitor confere cada campo; arquivo cortado, alterado ou de outra versão é recusado sem derrubar o jogo (`src/core/salvamento.*`).
 - O baralho de uma mão só se refaz igual no mesmo sistema e na mesma compilação, porque depende do `rand` da biblioteca C. Um salvamento levado a outro computador pode ser recusado pela conferência.
 
-**Para quem implementar trapaças e roleta (Gabriel):** tudo o que mudar o estado do jogo e não for uma ação do motor precisa entrar em `PartidaSalva` e em `partida_exportar` e `partida_restaurar`, senão o jogo continuado diverge do original. Exemplos: carta trocada ou tirada do baralho, carta marcada, suspeita de cada adversário, balas da roleta, custo pago, duração da embriaguez. O teste `tests/test_salvamento.c` refaz partidas salvas e as compara com as originais passo a passo, e vai acusar a diferença.
+**Regra para tudo o que mudar o estado do jogo fora das ações do motor** (carta trocada ou tirada do baralho, carta marcada, custo pago, duração da embriaguez, uma trapaça descoberta): precisa virar uma entrada do registro da mão e ser refeita por `partida_restaurar` na mesma ordem, e o estado que ela muda precisa estar no que se guarda no início da mão (`PartidaSalva`). Os sorteios dessas mecânicas saem de geradores da `Partida`, nunca do `rand` global. O teste `tests/test_salvamento.c` refaz partidas salvas e as compara com as originais passo a passo, e vai acusar a diferença. A roleta já segue essa regra.
 
 ## 4. Regras do jogo (resumo do conceito v0.2)
 
@@ -165,7 +166,7 @@ Para continuar **no meio de uma mão**, o que se guarda não é uma cópia da me
 - O assento 0 é sempre o jogador e o 1 é o adversário, como o motor espera. O dealer alterna a cada mão; no primeiro confronto e a cada confronto novo, o jogador começa como dealer.
 - Depois de `poker_settle`, o core chama `torneio_registrar_mao` com as fichas finais dos dois assentos. O torneio **recusa** o registro se alguém ficar negativo, se os dois zerarem ou se a soma das fichas **aumentar**: fichas só saem de circulação (custos de trapaça), nunca surgem.
 - Ao zerar o adversário, a situação vira `CONFRONTO_VENCIDO` (ou `CAMPEAO` no último) e o jogo chama `torneio_avancar_confronto`: o jogador leva o saldo, o adversário entra com as fichas do seu confronto e os blinds reiniciam.
-- Ao zerar o jogador, a situação vira `JOGADOR_FALIDO`. A roleta (do Gabriel) decide o que acontece; se ele sobreviver, o core chama `torneio_recuperar_jogador`: o jogador volta com **metade das fichas iniciais do adversário daquela etapa** (2.000 no confronto de 4.000), o adversário mantém suas fichas e o nível dos blinds não muda. O contador `recuperacoes` existe para o Gabriel aplicar o limite de recuperações.
+- Ao zerar o jogador, a situação do torneio vira `JOGADOR_FALIDO` e a partida vai para a roleta (3.1). Se ele sobreviver, o core chama `torneio_recuperar_jogador`: o jogador volta com **metade das fichas iniciais do adversário daquela etapa** (2.000 no confronto de 4.000), o adversário mantém suas fichas e o nível dos blinds não muda. O contador `recuperacoes` limita isso a `PARTIDA_RECUPERACOES_MAXIMAS` (3) por partida.
 
 **[Proposta]** Valores escolhidos só para ter o que testar; o grupo ajusta jogando (pendência 11). Ficam em `src/core/torneio.h` e `src/core/torneio.c`:
 
@@ -220,9 +221,10 @@ Os custos e as chances de ser descoberto ainda não têm valores: serão ajustad
 | --- | --- | --- | --- | --- | --- | --- |
 | Chance de morte | 16,7% | 33,3% | 50% | 66,7% | 83,3% | 100% |
 
-- Se sobreviver: continua, a suspeita do adversário atual diminui bastante (sem zerar) e as balas **não** são removidas automaticamente.
-- Se a roleta veio de falência: o jogador recebe **metade do valor de referência da etapa** para tentar continuar (no confronto de 4.000, volta com 2.000), com um limite de recuperações para evitar exploração.
-- Ao vencer um confronto, o jogador remove balas do revólver.
+- **[Decidido, ajustável]** Se sobreviver: **entra uma bala** no tambor (até 6) e a suspeita do adversário atual (os usos de cada trapaça) **recomeça do zero**. O conceito dizia que a suspeita cai bastante, sem zerar; quem balancear muda `prob_jogar_roleta_russa`.
+- Se a roleta veio de falência: o jogador recebe **metade do valor de referência da etapa** para tentar continuar (no confronto de 4.000, volta com 2.000), com um limite de **3 recuperações** por partida (`PARTIDA_RECUPERACOES_MAXIMAS`) para evitar exploração; depois disso a falência é definitiva e não há roleta.
+- **[Decidido, ajustável]** Ao vencer um confronto, o jogador remove **uma bala** do revólver (mínimo de 1) e a suspeita recomeça (`prob_avancar_mesa`).
+- O sorteio do gatilho vem de um gerador da `Partida` (`estado_do_risco`), então o resultado é reproduzível: o salvamento e o jogo refeito dão o mesmo resultado.
 
 ### Economia
 
@@ -279,7 +281,7 @@ Marcar carta, espelho e parte do suborno só **revelam informação** (cartas do
 | 8 | Padrão C do projeto | Grupo | C11 com `-Wall -Wextra -Wpedantic` | Build |
 | 9 | Makefile único (jogo + testes + demos) | Arthur | **[Decidido]** Um só `Makefile` na raiz, com `make jogo`, `make test` e as demos | — |
 | 10 | Funcionamento definitivo do ás na manga | Gabriel | Ver 5.1 | Trapaças |
-| 11 | Valores a balancear, listados no conceito v0.2 (seção 10): valores e frequência de aumento dos blinds, probabilidades-base de descoberta, suspeita acrescentada por tentativa, redução da suspeita após sobreviver à roleta, balas adicionadas por punição, balas removidas por vitória, penalidade financeira ao ser descoberto, limite de recuperações por falência, duração da embriaguez | Grupo | Deixar como constantes fáceis de ajustar e decidir testando | Balanceamento |
+| 11 | Valores a balancear, listados no conceito v0.2 (seção 10): valores e frequência de aumento dos blinds, probabilidades-base de descoberta, suspeita acrescentada por tentativa, redução da suspeita após sobreviver à roleta, balas adicionadas por punição, balas removidas por vitória, penalidade financeira ao ser descoberto, limite de recuperações por falência, duração da embriaguez | Grupo | Deixar como constantes fáceis de ajustar e decidir testando. **[Decidido por enquanto]** Sobreviver à roleta soma 1 bala e zera a suspeita; vencer um confronto tira 1 bala; 3 recuperações por partida; os demais seguem em `probabilidade.c` e `trapacas.c` | Balanceamento |
 
 ## 7. Quem faz o quê
 

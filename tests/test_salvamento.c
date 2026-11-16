@@ -81,6 +81,7 @@ static PokerAction politica_all_in(const Partida *partida, unsigned *sorteio)
 static bool partida_terminou(const Partida *partida)
 {
     return partida->situacao == PARTIDA_JOGADOR_FALIDO ||
+           partida->situacao == PARTIDA_JOGADOR_MORTO ||
            partida->situacao == PARTIDA_CAMPEAO;
 }
 
@@ -115,7 +116,12 @@ static bool dar_um_passo(Partida *partida, Politica politica, unsigned *sorteio)
             CHECK(partida_continuar(partida));
             return true;
 
+        case PARTIDA_ROLETA:
+            CHECK(partida_puxar_gatilho(partida));
+            return true;
+
         case PARTIDA_JOGADOR_FALIDO:
+        case PARTIDA_JOGADOR_MORTO:
         case PARTIDA_CAMPEAO:
             return false;
 
@@ -138,6 +144,25 @@ static void conferir_torneios_iguais(const Torneio *a, const Torneio *b)
     CHECK(a->situacao == b->situacao);
 }
 
+static void conferir_riscos_iguais(const SistemaRisco *a, const SistemaRisco *b)
+{
+    CHECK(a->balas_roleta == b->balas_roleta);
+
+    for (int i = 0; i < PROB_TRAPACA_TOTAL; i++) {
+        CHECK(a->usos_trapaca[i] == b->usos_trapaca[i]);
+    }
+}
+
+static void conferir_registros_iguais(const RegistroDaMao *a, const RegistroDaMao *b)
+{
+    CHECK(a->tipo == b->tipo);
+
+    if (a->tipo == REGISTRO_ACAO) {
+        CHECK(a->acao.type == b->acao.type);
+        CHECK(a->acao.total == b->acao.total);
+    }
+}
+
 static void conferir_partidas_iguais(const Partida *a, const Partida *b)
 {
     const Mao *ma = &a->mao;
@@ -151,6 +176,18 @@ static void conferir_partidas_iguais(const Partida *a, const Partida *b)
     CHECK(a->rng_acao.state == b->rng_acao.state);
     CHECK(a->rng_equidade.state == b->rng_equidade.state);
     CHECK(a->adversario_embriagado == b->adversario_embriagado);
+    conferir_riscos_iguais(&a->risco, &b->risco);
+    CHECK(a->estado_do_risco == b->estado_do_risco);
+    conferir_riscos_iguais(&a->risco_da_mao, &b->risco_da_mao);
+    CHECK(a->estado_do_risco_da_mao == b->estado_do_risco_da_mao);
+    CHECK(a->roleta_motivo == b->roleta_motivo);
+    CHECK(a->quantidade_no_registro == b->quantidade_no_registro);
+    CHECK(a->registro_perdido == b->registro_perdido);
+
+    for (size_t i = 0; i < a->quantidade_no_registro; i++) {
+        conferir_registros_iguais(&a->registro[i], &b->registro[i]);
+    }
+
     CHECK(a->ia.style == b->ia.style);
     CHECK(a->ia.action_rng == &a->rng_acao && b->ia.action_rng == &b->rng_acao);
     CHECK(a->ia.equity_rng == &a->rng_equidade && b->ia.equity_rng == &b->rng_equidade);
@@ -203,10 +240,12 @@ static void conferir_salvas_iguais(const PartidaSalva *a, const PartidaSalva *b)
     CHECK(a->rng_acao == b->rng_acao);
     CHECK(a->rng_equidade == b->rng_equidade);
     CHECK(a->adversario_embriagado == b->adversario_embriagado);
+    conferir_riscos_iguais(&a->risco, &b->risco);
+    CHECK(a->estado_do_risco == b->estado_do_risco);
     CHECK(a->situacao == b->situacao);
     CHECK(a->cartas_no_board == b->cartas_no_board);
     CHECK(a->fichas[0] == b->fichas[0] && a->fichas[1] == b->fichas[1]);
-    CHECK(a->quantidade_de_acoes == b->quantidade_de_acoes);
+    CHECK(a->quantidade_no_registro == b->quantidade_no_registro);
 
     for (int assento = 0; assento < 2; assento++) {
         for (int i = 0; i < 2; i++) {
@@ -218,9 +257,8 @@ static void conferir_salvas_iguais(const PartidaSalva *a, const PartidaSalva *b)
         CHECK(mesma_carta(a->board[i], b->board[i]));
     }
 
-    for (size_t i = 0; i < a->quantidade_de_acoes; i++) {
-        CHECK(a->acoes[i].type == b->acoes[i].type);
-        CHECK(a->acoes[i].total == b->acoes[i].total);
+    for (size_t i = 0; i < a->quantidade_no_registro; i++) {
+        conferir_registros_iguais(&a->registro[i], &b->registro[i]);
     }
 }
 
@@ -298,7 +336,14 @@ static int correr_juntas(Partida *a, Partida *b, Politica politica, unsigned *so
                 CHECK(partida_continuar(b));
                 break;
 
+            case PARTIDA_ROLETA:
+                drenar_eventos(a);
+                CHECK(partida_puxar_gatilho(a));
+                CHECK(partida_puxar_gatilho(b));
+                break;
+
             case PARTIDA_JOGADOR_FALIDO:
+            case PARTIDA_JOGADOR_MORTO:
             case PARTIDA_CAMPEAO:
                 CHECK(!partida_exportar(a, &(PartidaSalva){0}));
                 CHECK(!partida_exportar(b, &(PartidaSalva){0}));
@@ -358,7 +403,7 @@ static void test_formato_de_texto_vai_e_volta(void)
         tamanho = salvamento_formatar(&guardada, texto, sizeof texto);
         CHECK(tamanho > 0);
         CHECK(strlen(texto) == tamanho);
-        CHECK(strncmp(texto, "DMBSAVE 1\n", 10) == 0);
+        CHECK(strncmp(texto, "DMBSAVE 2\n", 10) == 0);
         CHECK(strcmp(texto + tamanho - 4, "fim\n") == 0);
 
         CHECK(salvamento_interpretar(texto, tamanho, &lida));
@@ -410,7 +455,8 @@ static void test_refazer_em_cada_situacao_continuavel(void)
         PARTIDA_VEZ_DO_JOGADOR,
         PARTIDA_VEZ_DO_ADVERSARIO,
         PARTIDA_MAO_ENCERRADA,
-        PARTIDA_CONFRONTO_VENCIDO
+        PARTIDA_CONFRONTO_VENCIDO,
+        PARTIDA_ROLETA
     };
 
     for (size_t i = 0; i < sizeof ALVOS / sizeof ALVOS[0]; i++) {
@@ -421,7 +467,7 @@ static void test_refazer_em_cada_situacao_continuavel(void)
 
             CHECK(partida_iniciar(&original, semente));
 
-            if (ALVOS[i] == PARTIDA_CONFRONTO_VENCIDO) {
+            if (ALVOS[i] == PARTIDA_CONFRONTO_VENCIDO || ALVOS[i] == PARTIDA_ROLETA) {
                 achou = andar_ate(&original, ALVOS[i], politica_all_in, &sorteio);
             } else {
                 for (int passos = (int)(semente % 40); passos > 0 && !partida_terminou(&original); passos--) {
@@ -509,26 +555,28 @@ static void test_exportar_recusa_o_que_nao_pode_continuar(void)
     PartidaSalva salva = {0};
     Partida vazia = {0};
 
-    salva.quantidade_de_acoes = 777;
+    salva.quantidade_no_registro = 777;
     CHECK(!partida_exportar(&vazia, &salva));
     CHECK(!partida_exportar(NULL, &salva));
     CHECK(partida_iniciar(&original, 5));
     CHECK(!partida_exportar(&original, NULL));
-    CHECK(salva.quantidade_de_acoes == 777);
+    CHECK(salva.quantidade_no_registro == 777);
 
     original.situacao = PARTIDA_JOGADOR_FALIDO;
+    CHECK(!partida_exportar(&original, &salva));
+    original.situacao = PARTIDA_JOGADOR_MORTO;
     CHECK(!partida_exportar(&original, &salva));
     original.situacao = PARTIDA_CAMPEAO;
     CHECK(!partida_exportar(&original, &salva));
     original.situacao = PARTIDA_VAZIA;
     CHECK(!partida_exportar(&original, &salva));
-    CHECK(salva.quantidade_de_acoes == 777);
+    CHECK(salva.quantidade_no_registro == 777);
 
     CHECK(partida_iniciar(&original, 5));
-    original.mao.acoes_perdidas = true;
+    original.registro_perdido = true;
     CHECK(!partida_exportar(&original, &salva));
-    CHECK(salva.quantidade_de_acoes == 777);
-    original.mao.acoes_perdidas = false;
+    CHECK(salva.quantidade_no_registro == 777);
+    original.registro_perdido = false;
     CHECK(partida_exportar(&original, &salva));
     partida_encerrar(&original);
 }
@@ -618,20 +666,49 @@ static void test_refazer_recusa_dados_adulterados(void)
     conferir_recusa(&ruim);
 
     ruim = boa;
-    ruim.quantidade_de_acoes--;
+    ruim.quantidade_no_registro--;
     conferir_recusa(&ruim);
 
     ruim = boa;
-    ruim.acoes[ruim.quantidade_de_acoes] = ruim.acoes[ruim.quantidade_de_acoes - 1];
-    ruim.quantidade_de_acoes++;
+    ruim.registro[ruim.quantidade_no_registro] = ruim.registro[ruim.quantidade_no_registro - 1];
+    ruim.quantidade_no_registro++;
     conferir_recusa(&ruim);
 
     ruim = boa;
-    ruim.acoes[0].type = (PokerActionType)((int)ruim.acoes[0].type == POKER_FOLD ? POKER_CHECK : POKER_FOLD);
+    ruim.registro[0].acao.type =
+        (PokerActionType)((int)ruim.registro[0].acao.type == POKER_FOLD ? POKER_CHECK : POKER_FOLD);
     conferir_recusa(&ruim);
 
     ruim = boa;
-    ruim.quantidade_de_acoes = MAO_ACOES_MAXIMAS + 1;
+    ruim.registro[0].tipo = REGISTRO_GATILHO;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.quantidade_no_registro = PARTIDA_REGISTRO_MAXIMO + 1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.risco.balas_roleta = 0;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.risco.balas_roleta = 7;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.risco.usos_trapaca[2] = -1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.risco.usos_trapaca[PROB_TRAPACA_TOTAL - 1] = PARTIDA_USOS_MAXIMOS + 1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.situacao = PARTIDA_JOGADOR_MORTO;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.situacao = PARTIDA_ROLETA;
     conferir_recusa(&ruim);
 
     ruim = boa;
@@ -760,14 +837,16 @@ static void test_cabecalho_e_palavras_erradas_sao_recusados(void)
     static char texto[SALVAMENTO_TAMANHO_MAXIMO];
     static char alterado[SALVAMENTO_TAMANHO_MAXIMO];
     static const char *const TROCAS[][2] = {
-        {"DMBSAVE 1", "DMBSAVE 2"},
-        {"DMBSAVE 1", "dmbsave 1"},
-        {"DMBSAVE 1", "DMBSAVE 0"},
-        {"DMBSAVE 1", "DMBSAVE"},
+        {"DMBSAVE 2", "DMBSAVE 1"},
+        {"DMBSAVE 2", "DMBSAVE 3"},
+        {"DMBSAVE 2", "dmbsave 2"},
+        {"DMBSAVE 2", "DMBSAVE 0"},
+        {"DMBSAVE 2", "DMBSAVE"},
         {"torneio", "torneo"},
         {"mao ", "mao x"},
         {"sementes", "semente"},
         {"ia ", "iaa "},
+        {"risco", "riscos"},
         {"cartas", "carta"},
         {"board", "borda"},
         {"fichas", "fichs"},
@@ -903,18 +982,70 @@ static void test_valores_fora_dos_limites_sao_recusados(void)
     CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
 
     ruim = boa;
-    ruim.acoes[0].type = (PokerActionType)6;
+    ruim.registro[0].acao.type = (PokerActionType)7;
     CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
     CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
 
     ruim = boa;
-    ruim.acoes[0].total = -1;
+    ruim.registro[0].acao.total = -1;
     CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
     CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
 
     ruim = boa;
-    ruim.quantidade_de_acoes = MAO_ACOES_MAXIMAS + 1;
+    ruim.registro[0].tipo = REGISTRO_GATILHO;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(salvamento_interpretar(texto, strlen(texto), &lida));
+    CHECK(lida.registro[0].tipo == REGISTRO_GATILHO);
+
+    ruim = boa;
+    ruim.quantidade_no_registro = PARTIDA_REGISTRO_MAXIMO + 1;
     CHECK(salvamento_formatar(&ruim, texto, sizeof texto) == 0);
+
+    ruim = boa;
+    ruim.risco.balas_roleta = 0;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
+
+    ruim = boa;
+    ruim.risco.balas_roleta = 7;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
+
+    ruim = boa;
+    ruim.risco.balas_roleta = 6;
+    ruim.risco.usos_trapaca[PROB_TRAPACA_TOTAL - 1] = PARTIDA_USOS_MAXIMOS;
+    ruim.estado_do_risco = UINT64_MAX;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(salvamento_interpretar(texto, strlen(texto), &lida));
+    CHECK(lida.risco.balas_roleta == 6);
+    CHECK(lida.risco.usos_trapaca[PROB_TRAPACA_TOTAL - 1] == PARTIDA_USOS_MAXIMOS);
+    CHECK(lida.estado_do_risco == UINT64_MAX);
+
+    ruim = boa;
+    ruim.risco.usos_trapaca[0] = -1;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
+
+    ruim = boa;
+    ruim.risco.usos_trapaca[1] = PARTIDA_USOS_MAXIMOS + 1;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
+
+    ruim = boa;
+    ruim.situacao = PARTIDA_JOGADOR_MORTO;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
+
+    ruim = boa;
+    ruim.situacao = PARTIDA_CAMPEAO;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(!salvamento_interpretar(texto, strlen(texto), &lida));
+
+    ruim = boa;
+    ruim.situacao = PARTIDA_ROLETA;
+    CHECK(salvamento_formatar(&ruim, texto, sizeof texto) > 0);
+    CHECK(salvamento_interpretar(texto, strlen(texto), &lida));
+    CHECK(lida.situacao == PARTIDA_ROLETA);
 
     ruim = boa;
     ruim.cartas_no_board = MAO_CARTAS_NO_BOARD + 1;
@@ -924,11 +1055,12 @@ static void test_valores_fora_dos_limites_sao_recusados(void)
 static void test_numeros_malformados_sao_recusados(void)
 {
     static const char *const BASE =
-        "DMBSAVE 1\n"
+        "DMBSAVE 2\n"
         "torneio 0 1990 2010 3 1 0\n"
         "mao 1234 1 0\n"
         "sementes 99\n"
         "ia 5 6\n"
+        "risco 2 0 1 0 3 0 77\n"
         "cartas 14 3 7 0 2 1 9 2\n"
         "board 0\n"
         "fichas 1990 2010\n"
@@ -954,6 +1086,21 @@ static void test_numeros_malformados_sao_recusados(void)
         {"acoes 1", "acoes 0"},
         {"acoes 1", "acoes 513"},
         {"2 0\nfim", "2 0 3\nfim"},
+        {"2 0\nfim", "7 0\nfim"},
+        {"2 0\nfim", "6 5\nfim"},
+        {"2 0\nfim", "6\nfim"},
+        {"risco 2 0", "risco 0 0"},
+        {"risco 2 0", "risco 7 0"},
+        {"risco 2 0", "risco -1 0"},
+        {"risco 2 0", "risco 2 -1"},
+        {"risco 2 0 1", "risco 2 0 1000001"},
+        {"0 3 0 77", "0 3 77"},
+        {"0 3 0 77", "0 3 0 -77"},
+        {"0 3 0 77", "0 3 0 77 8"},
+        {"mao 1234 1 0", "mao 1234 5 0"},
+        {"mao 1234 1 0", "mao 1234 6 0"},
+        {"mao 1234 1 0", "mao 1234 8 0"},
+        {"mao 1234 1 0", "mao 1234 9 0"},
         {"sementes 99", "sementes 1234567890123456789012345678901"},
         {"sementes 99", "sementes 12345678901234567890123456789012"},
         {"sementes 99", "sementes 1234567890123456789012345678901234567890123456789012345678901234"},
@@ -968,7 +1115,12 @@ static void test_numeros_malformados_sao_recusados(void)
         {"2010 3 1 0", "2010 3 1 1000000"},
         {"board 0", "board 5 2 0 3 0 4 0 5 0 6 0"},
         {"mao 1234", "mao 4294967295"},
-        {"sementes 99", "sementes 18446744073709551615"}
+        {"sementes 99", "sementes 18446744073709551615"},
+        {"2 0\nfim", "6 0\nfim"},
+        {"2 0\nfim", "5 0\nfim"},
+        {"risco 2 0 1 0 3 0 77", "risco 6 1000000 1000000 0 0 0 18446744073709551615"},
+        {"risco 2 0 1 0 3 0 77", "risco 1 0 0 0 0 0 0"},
+        {"mao 1234 1 0", "mao 1234 7 0"}
     };
     PartidaSalva lida;
 
@@ -977,7 +1129,12 @@ static void test_numeros_malformados_sao_recusados(void)
     CHECK(lida.semente_da_mao == 1234 && lida.estado_das_sementes == 99);
     CHECK(lida.rng_acao == 5 && lida.rng_equidade == 6);
     CHECK(lida.situacao == PARTIDA_VEZ_DO_JOGADOR && !lida.adversario_embriagado);
-    CHECK(lida.quantidade_de_acoes == 1 && lida.acoes[0].type == POKER_CALL);
+    CHECK(lida.risco.balas_roleta == 2 && lida.estado_do_risco == 77);
+    CHECK(lida.risco.usos_trapaca[0] == 0 && lida.risco.usos_trapaca[1] == 1);
+    CHECK(lida.risco.usos_trapaca[2] == 0 && lida.risco.usos_trapaca[3] == 3);
+    CHECK(lida.risco.usos_trapaca[4] == 0);
+    CHECK(lida.quantidade_no_registro == 1);
+    CHECK(lida.registro[0].tipo == REGISTRO_ACAO && lida.registro[0].acao.type == POKER_CALL);
     CHECK(mesma_carta(lida.cartas[0][0], (PokerCard){14, POKER_SPADES}));
     CHECK(mesma_carta(lida.cartas[1][1], (PokerCard){9, POKER_HEARTS}));
     CHECK(lida.cartas_no_board == 0);
@@ -1009,7 +1166,7 @@ static void test_numeros_malformados_sao_recusados(void)
         const char *onde = strstr(BASE, "acoes 1\n2 0\n");
         size_t usado = (size_t)(onde - BASE);
 
-        for (int quantidade = MAO_ACOES_MAXIMAS; quantidade <= MAO_ACOES_MAXIMAS + 1; quantidade++) {
+        for (int quantidade = PARTIDA_REGISTRO_MAXIMO; quantidade <= PARTIDA_REGISTRO_MAXIMO + 1; quantidade++) {
             memcpy(muitas, BASE, usado);
             usado = (size_t)(onde - BASE);
             usado += (size_t)snprintf(muitas + usado, sizeof muitas - usado, "acoes %d\n", quantidade);
@@ -1020,7 +1177,7 @@ static void test_numeros_malformados_sao_recusados(void)
 
             usado += (size_t)snprintf(muitas + usado, sizeof muitas - usado, "fim\n");
             CHECK(usado < sizeof muitas);
-            CHECK(salvamento_interpretar(muitas, usado, &lida) == (quantidade == MAO_ACOES_MAXIMAS));
+            CHECK(salvamento_interpretar(muitas, usado, &lida) == (quantidade == PARTIDA_REGISTRO_MAXIMO));
             usado = (size_t)(onde - BASE);
         }
     }
@@ -1043,7 +1200,7 @@ static void test_numeros_malformados_sao_recusados(void)
     }
 
     {
-        char sem_dados[sizeof "DMBSAVE 1\nfim\n"] = "DMBSAVE 1\nfim\n";
+        char sem_dados[sizeof "DMBSAVE 2\nfim\n"] = "DMBSAVE 2\nfim\n";
 
         CHECK(!salvamento_interpretar(sem_dados, sizeof sem_dados - 1, &lida));
         CHECK(!salvamento_interpretar("", 0, &lida));
@@ -1188,20 +1345,26 @@ static void test_arquivo_estragado_e_reconhecido(void)
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 1\ntorneio 0 1 2\n", arquivo);
+    fputs("DMBSAVE 2\ntorneio 0 1 2\n", arquivo);
     fclose(arquivo);
     CHECK(salvamento_existe(ARQUIVO_DE_TESTE));
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 2\n", arquivo);
+    fputs("DMBSAVE 1\n", arquivo);
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 1 extra\n", arquivo);
+    fputs("DMBSAVE 3\n", arquivo);
+    fclose(arquivo);
+    CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
+
+    arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
+    CHECK(arquivo != NULL);
+    fputs("DMBSAVE 2 extra\n", arquivo);
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
@@ -1212,7 +1375,7 @@ static void test_arquivo_estragado_e_reconhecido(void)
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
 
     memset(grande, ' ', sizeof grande);
-    memcpy(grande, "DMBSAVE 1\n", 10);
+    memcpy(grande, "DMBSAVE 2\n", 10);
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
     fwrite(grande, 1, sizeof grande, arquivo);
@@ -1221,6 +1384,64 @@ static void test_arquivo_estragado_e_reconhecido(void)
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
 
     salvamento_apagar(ARQUIVO_DE_TESTE);
+}
+
+/** Leva a partida original até a roleta de falência; false se a semente não faliu o jogador. */
+static bool levar_original_a_roleta(unsigned semente)
+{
+    unsigned sorteio = semente * 104729u + 3u;
+
+    CHECK(partida_iniciar(&original, semente));
+    return andar_ate(&original, PARTIDA_ROLETA, politica_all_in, &sorteio);
+}
+
+static void test_a_roleta_e_o_gatilho_vao_e_voltam(void)
+{
+    int sobreviveu = 0;
+    int morreu = 0;
+
+    for (unsigned semente = 1; semente <= SEMENTES_DA_BUSCA && (!sobreviveu || !morreu); semente++) {
+        PartidaSalva guardada;
+        unsigned sorteio = semente * 17u + 1u;
+        bool encontrou = levar_original_a_roleta(semente);
+
+        if (!encontrou || original.quantidade_no_registro == 0) {
+            partida_encerrar(&original);
+            continue;
+        }
+
+        original.estado_do_risco = semente;
+        original.estado_do_risco_da_mao = semente;
+        CHECK(partida_exportar(&original, &guardada));
+        CHECK(guardada.situacao == PARTIDA_ROLETA);
+        CHECK(guardada.estado_do_risco == semente);
+
+        /* Refeita no ponto da roleta, ainda antes do gatilho. */
+        conferir_ida_e_volta(&original, &refeita);
+        CHECK(refeita.situacao == PARTIDA_ROLETA);
+        CHECK(refeita.roleta_motivo == ROLETA_FALENCIA);
+
+        /* Depois do gatilho a mão guarda a entrada dele, e refazer reproduz o resultado. */
+        CHECK(partida_puxar_gatilho(&original));
+        CHECK(original.registro[original.quantidade_no_registro - 1].tipo == REGISTRO_GATILHO);
+
+        if (original.situacao == PARTIDA_JOGADOR_MORTO) {
+            morreu++;
+            CHECK(!partida_exportar(&original, &guardada));
+        } else {
+            sobreviveu++;
+            CHECK(original.situacao == PARTIDA_MAO_ENCERRADA);
+            conferir_ida_e_volta(&original, &refeita);
+            CHECK(refeita.torneio.recuperacoes == 1);
+            CHECK(refeita.risco.balas_roleta == 2);
+            correr_juntas(&original, &refeita, politica_aleatoria, &sorteio);
+        }
+
+        partida_encerrar(&refeita);
+        partida_encerrar(&original);
+    }
+
+    CHECK(sobreviveu > 0 && morreu > 0);
 }
 
 static void test_partida_refeita_pode_ser_liberada_e_reusada(void)
@@ -1269,6 +1490,7 @@ int main(void)
     test_formatar_recusa_buffer_pequeno_e_argumentos_nulos();
     test_arquivo_grava_le_e_apaga();
     test_arquivo_estragado_e_reconhecido();
+    test_a_roleta_e_o_gatilho_vao_e_voltam();
     test_partida_refeita_pode_ser_liberada_e_reusada();
     puts("OK: salvamento (texto, arquivo, refazer a partida em cada situacao e continuar igual ate o fim do torneio).");
     return EXIT_SUCCESS;

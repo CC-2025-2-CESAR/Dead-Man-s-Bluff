@@ -10,7 +10,17 @@
 #include "core/mao_ia.h"
 #include "core/torneio.h"
 #include "gameplay/poker_ai_config.h"
+#include "gameplay/probabilidade.h"
 #include "poker.h"
+
+/** Quantas vezes o jogador pode voltar de uma falência pela roleta. */
+#define PARTIDA_RECUPERACOES_MAXIMAS 3
+
+/** Quantas entradas cabem no registro de uma mão (ver RegistroDaMao). */
+#define PARTIDA_REGISTRO_MAXIMO MAO_ACOES_MAXIMAS
+
+/** Maior contagem de usos de uma trapaça que um salvamento pode trazer. */
+#define PARTIDA_USOS_MAXIMOS 1000000
 
 /**
  * Situação da partida, que une a mão em andamento e o torneio.
@@ -22,9 +32,12 @@
  * partida_continuar para começar a próxima.
  * PARTIDA_CONFRONTO_VENCIDO: o adversário ficou sem fichas; use
  * partida_continuar para enfrentar o próximo.
- * PARTIDA_JOGADOR_FALIDO: o jogador ficou sem fichas. A roleta ainda não
- * existe, então a partida acaba aqui.
+ * PARTIDA_JOGADOR_FALIDO: o jogador ficou sem fichas e já usou todas as
+ * recuperações possíveis (PARTIDA_RECUPERACOES_MAXIMAS); a partida acabou.
  * PARTIDA_CAMPEAO: o último adversário foi derrotado e a partida acabou.
+ * PARTIDA_ROLETA: a roleta russa espera o gatilho; use partida_puxar_gatilho.
+ * Partida.roleta_motivo diz por que ela foi acionada.
+ * PARTIDA_JOGADOR_MORTO: o jogador morreu na roleta e a partida acabou.
  */
 typedef enum {
     PARTIDA_VAZIA = 0,
@@ -33,8 +46,44 @@ typedef enum {
     PARTIDA_MAO_ENCERRADA,
     PARTIDA_CONFRONTO_VENCIDO,
     PARTIDA_JOGADOR_FALIDO,
-    PARTIDA_CAMPEAO
+    PARTIDA_CAMPEAO,
+    PARTIDA_ROLETA,
+    PARTIDA_JOGADOR_MORTO
 } PartidaSituacao;
+
+/**
+ * Por que a roleta russa foi acionada.
+ *
+ * ROLETA_NENHUMA: a roleta não está em jogo.
+ * ROLETA_FALENCIA: o jogador perdeu todas as fichas; se sobreviver, volta ao
+ * confronto com fichas novas.
+ * ROLETA_DESCOBERTO: uma trapaça foi descoberta; se sobreviver, a mão segue.
+ */
+typedef enum {
+    ROLETA_NENHUMA = 0,
+    ROLETA_FALENCIA,
+    ROLETA_DESCOBERTO
+} RoletaMotivo;
+
+/**
+ * O que a partida registra de uma mão, na ordem em que aconteceu, para poder
+ * refazê-la depois (ver partida_exportar).
+ *
+ * REGISTRO_ACAO: uma ação do motor de pôquer, do jogador ou da IA.
+ * REGISTRO_GATILHO: o jogador puxou o gatilho da roleta.
+ */
+typedef enum {
+    REGISTRO_ACAO = 0,
+    REGISTRO_GATILHO
+} TipoDeRegistro;
+
+/**
+ * Uma entrada do registro da mão. Só REGISTRO_ACAO usa o campo acao.
+ */
+typedef struct {
+    TipoDeRegistro tipo;
+    PokerAction acao;
+} RegistroDaMao;
 
 /**
  * O que o jogador pede na sua vez. A interface só traduz teclas ou botões
@@ -72,6 +121,16 @@ typedef enum {
  * semente_da_mao: semente do embaralhamento da mão atual.
  * estado_das_sementes: gerador que sorteia a semente de cada mão. É da
  * partida, e não o rand global, para duas partidas não se atrapalharem.
+ * risco: balas da roleta e usos de cada trapaça (ver gameplay/probabilidade.h).
+ * estado_do_risco: gerador que decide o gatilho da roleta (e, mais adiante,
+ * as descobertas). Também é da partida, pelo mesmo motivo.
+ * roleta_motivo: por que a roleta está em jogo, enquanto a situação for
+ * PARTIDA_ROLETA.
+ * risco_da_mao e estado_do_risco_da_mao: risco e gerador como estavam quando a
+ * mão atual começou; o que a mão muda neles se refaz pelo registro.
+ * registro e quantidade_no_registro: o que aconteceu na mão atual, na ordem.
+ * registro_perdido: true se a mão passou de PARTIDA_REGISTRO_MAXIMO entradas
+ * e o registro ficou incompleto; nesse caso ela não pode mais ser guardada.
  *
  * Não copie uma Partida: o contexto da IA aponta para os geradores que ela
  * guarda. Zere com Partida partida = {0}; antes de partida_iniciar.
@@ -88,23 +147,33 @@ typedef struct {
     Torneio torneio_da_mao;
     unsigned semente_da_mao;
     uint64_t estado_das_sementes;
+    SistemaRisco risco;
+    uint64_t estado_do_risco;
+    RoletaMotivo roleta_motivo;
+    SistemaRisco risco_da_mao;
+    uint64_t estado_do_risco_da_mao;
+    RegistroDaMao registro[PARTIDA_REGISTRO_MAXIMO];
+    size_t quantidade_no_registro;
+    bool registro_perdido;
 } Partida;
 
 /**
  * O que basta guardar de uma partida para continuá-la depois: o torneio no
- * início da mão atual, a semente do baralho, as ações já feitas e o estado da
- * IA. As cartas, as fichas e a situação servem para conferir, ao refazer a
- * mão, que o resultado é o mesmo de quando foi guardada.
+ * início da mão atual, a semente do baralho, o risco no início da mão, o
+ * registro do que aconteceu nela e o estado da IA. As cartas, as fichas e a
+ * situação servem para conferir, ao refazer a mão, que o resultado é o mesmo
+ * de quando foi guardada.
  *
  * torneio: torneio no início da mão atual; sempre em andamento.
  * semente_da_mao: semente do embaralhamento da mão atual.
  * estado_das_sementes: estado do gerador das sementes das próximas mãos.
  * rng_acao e rng_equidade: estados dos geradores da IA.
+ * risco e estado_do_risco: risco e gerador da roleta no início da mão.
  * adversario_embriagado: modo embriagado da IA.
  * situacao: situação da partida quando foi guardada.
  * cartas, board e cartas_no_board: cartas da mão quando foi guardada.
  * fichas: fichas de cada assento na mesa quando foi guardada.
- * acoes e quantidade_de_acoes: ações aplicadas na mão, na ordem.
+ * registro e quantidade_no_registro: o que aconteceu na mão, na ordem.
  */
 typedef struct {
     Torneio torneio;
@@ -112,14 +181,16 @@ typedef struct {
     uint64_t estado_das_sementes;
     uint64_t rng_acao;
     uint64_t rng_equidade;
+    SistemaRisco risco;
+    uint64_t estado_do_risco;
     bool adversario_embriagado;
     PartidaSituacao situacao;
     PokerCard cartas[2][2];
     PokerCard board[MAO_CARTAS_NO_BOARD];
     size_t cartas_no_board;
     PokerChips fichas[2];
-    PokerAction acoes[MAO_ACOES_MAXIMAS];
-    size_t quantidade_de_acoes;
+    RegistroDaMao registro[PARTIDA_REGISTRO_MAXIMO];
+    size_t quantidade_no_registro;
 } PartidaSalva;
 
 /**
@@ -200,14 +271,30 @@ PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_
 
 /**
  * Passa para a mão seguinte depois do fim de uma mão. Se o adversário foi
- * derrotado, antes disso avança o confronto, troca o perfil da IA e
- * reinicia os blinds.
+ * derrotado, antes disso avança o confronto, troca o perfil da IA, reinicia
+ * os blinds e tira uma bala da roleta (a suspeita também recomeça).
  *
  * @param partida partida em PARTIDA_MAO_ENCERRADA ou PARTIDA_CONFRONTO_VENCIDO.
  * @return true se a mão seguinte começou; false se a partida não está
- * esperando por isso (inclusive depois de falência ou título).
+ * esperando por isso (inclusive depois de falência, morte ou título).
  */
 bool partida_continuar(Partida *partida);
+
+/**
+ * Puxa o gatilho da roleta russa. O resultado sai do gerador da partida, e
+ * não do rand global, então refazer a mão (ver partida_restaurar) dá o mesmo
+ * resultado. Registra EVENTO_ROLETA.
+ *
+ * Se o jogador morre, a partida vira PARTIDA_JOGADOR_MORTO. Se sobrevive,
+ * uma bala entra no tambor e a suspeita das trapaças recomeça; depois, numa
+ * roleta de falência o jogador volta com metade das fichas iniciais do
+ * adversário (PARTIDA_MAO_ENCERRADA, e partida_continuar começa a próxima
+ * mão), e numa de trapaça descoberta a mão segue na vez dele.
+ *
+ * @param partida partida em PARTIDA_ROLETA.
+ * @return true se o gatilho foi puxado; false se a partida não está na roleta.
+ */
+bool partida_puxar_gatilho(Partida *partida);
 
 /**
  * Informa o que o jogador pode fazer agora.
@@ -231,13 +318,14 @@ const char *partida_nome_do_adversario(int confronto);
 /**
  * Junta o que é preciso para continuar a partida mais tarde, no ponto em
  * que ela está. Só vale enquanto a partida pode ser continuada: na vez do
- * jogador, na vez do adversário, depois de uma mão ou depois de um confronto
- * vencido. Falência e título encerram a partida, e não há o que guardar.
+ * jogador, na vez do adversário, na roleta, depois de uma mão ou depois de um
+ * confronto vencido. Falência definitiva, morte e título encerram a partida,
+ * e não há o que guardar.
  *
  * @param partida partida a guardar.
  * @param salva recebe os dados; fica intacta se a função devolver false.
  * @return true se os dados foram preenchidos; false se a partida não pode
- * ser continuada ou se a mão passou de MAO_ACOES_MAXIMAS ações.
+ * ser continuada ou se a mão passou de PARTIDA_REGISTRO_MAXIMO entradas.
  */
 bool partida_exportar(const Partida *partida, PartidaSalva *salva);
 
