@@ -9,10 +9,13 @@
 #include <string.h>
 
 #define CABECALHO "DMBSAVE"
-#define VERSAO 1
+#define VERSAO 2
 #define TAMANHO_DO_TOKEN 32
 #define TAMANHO_DO_CAMINHO 512
 #define LIMITE_DE_CONTADORES 1000000
+
+/** Código de uma entrada do registro: 0 a 5 são as ações do motor; este é o gatilho. */
+#define CODIGO_DO_GATILHO ((int)POKER_ALL_IN + 1)
 
 /** Posição de leitura dentro do texto de um salvamento. */
 typedef struct {
@@ -57,7 +60,7 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
     bool ok;
 
     if (salva == NULL || saida == NULL || capacidade == 0 ||
-        salva->quantidade_de_acoes > MAO_ACOES_MAXIMAS ||
+        salva->quantidade_no_registro > PARTIDA_REGISTRO_MAXIMO ||
         salva->cartas_no_board > MAO_CARTAS_NO_BOARD) {
         return 0;
     }
@@ -79,6 +82,15 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
          anexar(saida, capacidade, &usado, "ia %llu %llu\n",
                 (unsigned long long)salva->rng_acao,
                 (unsigned long long)salva->rng_equidade) &&
+         anexar(saida, capacidade, &usado, "risco %d", salva->risco.balas_roleta);
+
+    for (int i = 0; ok && i < PROB_TRAPACA_TOTAL; i++) {
+        ok = anexar(saida, capacidade, &usado, " %d", salva->risco.usos_trapaca[i]);
+    }
+
+    ok = ok &&
+         anexar(saida, capacidade, &usado, " %llu\n",
+                (unsigned long long)salva->estado_do_risco) &&
          anexar(saida, capacidade, &usado, "cartas");
 
     for (int assento = 0; ok && assento < 2; assento++) {
@@ -96,11 +108,17 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
     ok = ok &&
          anexar(saida, capacidade, &usado, "\nfichas %lld %lld\n",
                 (long long)salva->fichas[0], (long long)salva->fichas[1]) &&
-         anexar(saida, capacidade, &usado, "acoes %d\n", (int)salva->quantidade_de_acoes);
+         anexar(saida, capacidade, &usado, "acoes %d\n", (int)salva->quantidade_no_registro);
 
-    for (size_t i = 0; ok && i < salva->quantidade_de_acoes; i++) {
-        ok = anexar(saida, capacidade, &usado, "%d %lld\n",
-                    (int)salva->acoes[i].type, (long long)salva->acoes[i].total);
+    for (size_t i = 0; ok && i < salva->quantidade_no_registro; i++) {
+        const RegistroDaMao *entrada = &salva->registro[i];
+
+        if (entrada->tipo == REGISTRO_GATILHO) {
+            ok = anexar(saida, capacidade, &usado, "%d 0\n", CODIGO_DO_GATILHO);
+        } else {
+            ok = anexar(saida, capacidade, &usado, "%d %lld\n",
+                        (int)entrada->acao.type, (long long)entrada->acao.total);
+        }
     }
 
     ok = ok && anexar(saida, capacidade, &usado, "fim\n");
@@ -230,13 +248,21 @@ static bool ler_torneio(Leitor *leitor, Torneio *torneio)
     return true;
 }
 
+/** Diz se uma situação é daquelas em que a partida pode ser guardada e continuada. */
+static bool situacao_guardavel(long long situacao)
+{
+    return (situacao >= PARTIDA_VEZ_DO_JOGADOR && situacao <= PARTIDA_CONFRONTO_VENCIDO) ||
+           situacao == PARTIDA_ROLETA;
+}
+
 static bool ler_mao(Leitor *leitor, PartidaSalva *salva)
 {
     long long semente, situacao, embriagado;
 
     if (!esperar(leitor, "mao") ||
         !ler_inteiro(leitor, 0, UINT_MAX, &semente) ||
-        !ler_inteiro(leitor, PARTIDA_VEZ_DO_JOGADOR, PARTIDA_CONFRONTO_VENCIDO, &situacao) ||
+        !ler_inteiro(leitor, PARTIDA_VEZ_DO_JOGADOR, PARTIDA_JOGADOR_MORTO, &situacao) ||
+        !situacao_guardavel(situacao) ||
         !ler_inteiro(leitor, 0, 1, &embriagado)) {
         return false;
     }
@@ -255,6 +281,31 @@ static bool ler_geradores(Leitor *leitor, PartidaSalva *salva)
            ler_sem_sinal(leitor, &salva->rng_acao) &&
            ler_sem_sinal(leitor, &salva->rng_equidade) &&
            salva->rng_acao != 0 && salva->rng_equidade != 0;
+}
+
+/** Lê o risco no início da mão: balas, usos de cada trapaça e o gerador do risco. */
+static bool ler_risco(Leitor *leitor, PartidaSalva *salva)
+{
+    long long balas;
+
+    if (!esperar(leitor, "risco") ||
+        !ler_inteiro(leitor, 1, 6, &balas)) {
+        return false;
+    }
+
+    salva->risco.balas_roleta = (int)balas;
+
+    for (int i = 0; i < PROB_TRAPACA_TOTAL; i++) {
+        long long usos;
+
+        if (!ler_inteiro(leitor, 0, PARTIDA_USOS_MAXIMOS, &usos)) {
+            return false;
+        }
+
+        salva->risco.usos_trapaca[i] = (int)usos;
+    }
+
+    return ler_sem_sinal(leitor, &salva->estado_do_risco);
 }
 
 static bool ler_cartas(Leitor *leitor, PartidaSalva *salva)
@@ -297,24 +348,30 @@ static bool ler_fichas_e_acoes(Leitor *leitor, PartidaSalva *salva)
         !ler_inteiro(leitor, 0, POKER_MAX_STACK, &fichas_jogador) ||
         !ler_inteiro(leitor, 0, POKER_MAX_STACK, &fichas_adversario) ||
         !esperar(leitor, "acoes") ||
-        !ler_inteiro(leitor, 0, MAO_ACOES_MAXIMAS, &quantidade)) {
+        !ler_inteiro(leitor, 0, PARTIDA_REGISTRO_MAXIMO, &quantidade)) {
         return false;
     }
 
     salva->fichas[0] = (PokerChips)fichas_jogador;
     salva->fichas[1] = (PokerChips)fichas_adversario;
-    salva->quantidade_de_acoes = (size_t)quantidade;
+    salva->quantidade_no_registro = (size_t)quantidade;
 
-    for (size_t i = 0; i < salva->quantidade_de_acoes; i++) {
-        long long tipo, total;
+    for (size_t i = 0; i < salva->quantidade_no_registro; i++) {
+        long long codigo, total;
+        RegistroDaMao *entrada = &salva->registro[i];
 
-        if (!ler_inteiro(leitor, POKER_FOLD, POKER_ALL_IN, &tipo) ||
-            !ler_inteiro(leitor, 0, POKER_MAX_STACK, &total)) {
+        if (!ler_inteiro(leitor, POKER_FOLD, CODIGO_DO_GATILHO, &codigo) ||
+            !ler_inteiro(leitor, 0, codigo == CODIGO_DO_GATILHO ? 0 : POKER_MAX_STACK, &total)) {
             return false;
         }
 
-        salva->acoes[i].type = (PokerActionType)tipo;
-        salva->acoes[i].total = (PokerChips)total;
+        if (codigo == CODIGO_DO_GATILHO) {
+            entrada->tipo = REGISTRO_GATILHO;
+        } else {
+            entrada->tipo = REGISTRO_ACAO;
+            entrada->acao.type = (PokerActionType)codigo;
+            entrada->acao.total = (PokerChips)total;
+        }
     }
 
     return true;
@@ -339,6 +396,7 @@ bool salvamento_interpretar(const char *texto, size_t tamanho, PartidaSalva *sal
         !ler_torneio(&leitor, &lido.torneio) ||
         !ler_mao(&leitor, &lido) ||
         !ler_geradores(&leitor, &lido) ||
+        !ler_risco(&leitor, &lido) ||
         !ler_cartas(&leitor, &lido) ||
         !ler_fichas_e_acoes(&leitor, &lido) ||
         !esperar(&leitor, "fim") ||

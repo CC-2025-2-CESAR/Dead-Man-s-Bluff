@@ -613,6 +613,19 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             guardar_linha(linha);
             break;
 
+        case EVENTO_ROLETA:
+            if (evento->roleta.morreu) {
+                snprintf(linha, sizeof linha, "Roleta russa (%s): BANG! Você morreu",
+                         evento->roleta.por_falencia ? "falência" : "trapaça descoberta");
+            } else {
+                snprintf(linha, sizeof linha, "Roleta russa (%s): click, você sobreviveu (agora %d balas)",
+                         evento->roleta.por_falencia ? "falência" : "trapaça descoberta",
+                         evento->roleta.balas_depois);
+            }
+
+            guardar_linha(linha);
+            break;
+
         case EVENTO_CARTAS_DISTRIBUIDAS:
             break;
     }
@@ -661,6 +674,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     PokerCard ordenadas[MAO_CARTAS_ORDENADAS];
     size_t quantidade;
     int y = 24;
+    int extra = 0;
 
     comecar_desenho();
 
@@ -671,10 +685,14 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
              (long long)(mesa->big_blind / 2), (long long)mesa->big_blind);
     desenhar_linha(linha, &y, COR_OURO);
 
-    snprintf(linha, sizeof linha, "VOCÊ: %lld     ADVERSÁRIO: %lld     POTE: %lld",
-             (long long)mesa->player[TORNEIO_ASSENTO_JOGADOR].chips,
-             (long long)mesa->player[TORNEIO_ASSENTO_ADVERSARIO].chips,
-             (long long)poker_pot(mesa));
+    /* Depois da mão, o torneio manda: ele já inclui o que a roleta devolveu. */
+    snprintf(linha, sizeof linha, "VOCÊ: %lld     ADVERSÁRIO: %lld     POTE: %lld     BALAS NO TAMBOR: %d/6",
+             (long long)(terminou ? partida->torneio.fichas_jogador
+                                  : mesa->player[TORNEIO_ASSENTO_JOGADOR].chips),
+             (long long)(terminou ? partida->torneio.fichas_adversario
+                                  : mesa->player[TORNEIO_ASSENTO_ADVERSARIO].chips),
+             (long long)poker_pot(mesa),
+             partida->risco.balas_roleta);
     desenhar_linha(linha, &y, COR_TEXTO);
 
     texto_das_cartas(mao->cartas[TORNEIO_ASSENTO_JOGADOR], 2, cartas, sizeof cartas);
@@ -717,8 +735,22 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
             botao_de_texto("Você venceu o confronto! ENTER ou clique aqui para o próximo adversário", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
             break;
 
+        case PARTIDA_ROLETA:
+            snprintf(linha, sizeof linha, "ROLETA RUSSA: %d bala(s) no tambor de 6. ENTER ou clique aqui para puxar o gatilho",
+                     partida->risco.balas_roleta);
+            botao_de_texto(linha, 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
+            extra = 32;
+            snprintf(linha, sizeof linha, "Você faliu. Se sobreviver, volta ao confronto com %lld fichas.",
+                     (long long)(torneio_fichas_iniciais_adversario(partida->torneio.confronto) / 2));
+            DrawText(linha, 40, y + extra, 22, COR_TEXTO);
+            break;
+
+        case PARTIDA_JOGADOR_MORTO:
+            botao_de_texto("Você morreu na roleta. ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
+            break;
+
         case PARTIDA_JOGADOR_FALIDO:
-            botao_de_texto("Você faliu. ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
+            botao_de_texto("Você faliu e não pode mais voltar. ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_CAMPEAO:
@@ -730,7 +762,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
             break;
     }
 
-    y += 32 + 16;
+    y += 32 + 16 + extra;
 
     for (int i = 0; i < eventos_registrados; i++) {
         desenhar_linha(registro_de_eventos[i], &y, COR_TEXTO_SUAVE);
