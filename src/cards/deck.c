@@ -167,3 +167,75 @@ bool deck_deal_board(Deck *deck,
     *board_count += deal_count;
     return true;
 }
+
+static bool carta_valida(PokerCard card)
+{
+    return card.rank >= 2 && card.rank <= 14 &&
+           card.suit >= POKER_CLUBS && card.suit <= POKER_SPADES;
+}
+
+static CardNode *achar_carta(const Deck *deck, PokerCard card)
+{
+    for (CardNode *atual = deck->head; atual != NULL; atual = atual->next) {
+        if (atual->card.rank == card.rank && atual->card.suit == card.suit)
+            return atual;
+    }
+
+    return NULL;
+}
+
+bool deck_contains(const Deck *deck, PokerCard card)
+{
+    return deck != NULL && carta_valida(card) && achar_carta(deck, card) != NULL;
+}
+
+bool deck_remove_card(Deck *deck, PokerCard card)
+{
+    CardNode *anterior = NULL;
+    CardNode *atual;
+
+    if (deck == NULL || !carta_valida(card))
+        return false;
+
+    for (atual = deck->head; atual != NULL; atual = atual->next) {
+        if (atual->card.rank == card.rank && atual->card.suit == card.suit)
+            break;
+
+        anterior = atual;
+    }
+
+    if (atual == NULL)
+        return false;
+
+    if (anterior == NULL)
+        deck->head = atual->next;
+    else
+        anterior->next = atual->next;
+
+    if (atual == deck->tail)
+        deck->tail = anterior;
+
+    deck->count--;
+    free(atual);
+    return true;
+}
+
+bool deck_exchange(Deck *deck, PokerCard take, PokerCard put)
+{
+    CardNode *no;
+
+    if (deck == NULL || !carta_valida(take) || !carta_valida(put))
+        return false;
+
+    no = achar_carta(deck, take);
+
+    if (no == NULL)
+        return false;
+
+    /* Devolver uma carta que ja esta no baralho criaria uma repetida. */
+    if (!(take.rank == put.rank && take.suit == put.suit) && achar_carta(deck, put) != NULL)
+        return false;
+
+    no->card = put;
+    return true;
+}

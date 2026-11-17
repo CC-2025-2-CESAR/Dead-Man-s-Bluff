@@ -8,9 +8,11 @@
 #include "core/eventos.h"
 #include "core/mao.h"
 #include "core/mao_ia.h"
+#include "core/pedidos.h"
 #include "core/torneio.h"
 #include "gameplay/poker_ai_config.h"
 #include "gameplay/probabilidade.h"
+#include "gameplay/trapacas.h"
 #include "poker.h"
 
 /** Quantas vezes o jogador pode voltar de uma falência pela roleta. */
@@ -21,6 +23,19 @@
 
 /** Maior contagem de usos de uma trapaça que um salvamento pode trazer. */
 #define PARTIDA_USOS_MAXIMOS 1000000
+
+/** Quantas mãos uma carta marcada dura, contando a mão em que foi marcada. */
+#define PARTIDA_MARCA_DURACAO 5
+
+/** Chance, em %, de o dealer subornado pegar o dinheiro e não fazer o serviço. */
+#define PARTIDA_CHANCE_DO_DEALER_RECUSAR 30
+
+/**
+ * O suborno custa as fichas iniciais do adversário do confronto divididas por
+ * este valor (e vezes 1, 2 ou 3 conforme a ação). É "fixo por mesa e
+ * crescente com o valor da mesa".
+ */
+#define PARTIDA_SUBORNO_DIVISOR 20
 
 /**
  * Situação da partida, que une a mão em andamento e o torneio.
@@ -71,18 +86,22 @@ typedef enum {
  *
  * REGISTRO_ACAO: uma ação do motor de pôquer, do jogador ou da IA.
  * REGISTRO_GATILHO: o jogador puxou o gatilho da roleta.
+ * REGISTRO_TRAPACA: o jogador pediu uma trapaça (e ela foi tentada).
  */
 typedef enum {
     REGISTRO_ACAO = 0,
-    REGISTRO_GATILHO
+    REGISTRO_GATILHO,
+    REGISTRO_TRAPACA
 } TipoDeRegistro;
 
 /**
- * Uma entrada do registro da mão. Só REGISTRO_ACAO usa o campo acao.
+ * Uma entrada do registro da mão. REGISTRO_ACAO usa o campo acao e
+ * REGISTRO_TRAPACA usa o campo pedido.
  */
 typedef struct {
     TipoDeRegistro tipo;
     PokerAction acao;
+    PedidoTrapaca pedido;
 } RegistroDaMao;
 
 /**
@@ -112,8 +131,8 @@ typedef enum {
  * eventos: fila que a interface consome a cada quadro (ver eventos.h).
  * rng_acao e rng_equidade: geradores próprios da IA, que duram a partida.
  * ia: contexto da IA, com o perfil do confronto atual.
- * adversario_embriagado: modo embriagado da IA; fica para as trapaças
- * ligarem e hoje é sempre falso.
+ * adversario_embriagado: modo embriagado da IA. Deriva de cheats: vale
+ * enquanto restam mãos de bebedeira (cheats.maos_embriagado > 0).
  * situacao: situação atual da partida.
  * torneio_da_mao: o torneio como estava quando a mão atual começou. Com a
  * semente da mão e as ações da Mao, serve para refazer a mão (ver
@@ -121,9 +140,13 @@ typedef enum {
  * semente_da_mao: semente do embaralhamento da mão atual.
  * estado_das_sementes: gerador que sorteia a semente de cada mão. É da
  * partida, e não o rand global, para duas partidas não se atrapalharem.
+ * cheats: estado físico das trapaças (bebedeira, carta da manga, cartas
+ * marcadas, suborno pendente; ver gameplay/trapacas.h). A carta da manga
+ * vive fora do baralho e persiste entre as mãos e os confrontos.
+ * cheats_da_mao: cheats como estavam quando a mão atual começou.
  * risco: balas da roleta e usos de cada trapaça (ver gameplay/probabilidade.h).
- * estado_do_risco: gerador que decide o gatilho da roleta (e, mais adiante,
- * as descobertas). Também é da partida, pelo mesmo motivo.
+ * estado_do_risco: gerador que decide o gatilho da roleta, as descobertas e a
+ * recusa do dealer. Também é da partida, pelo mesmo motivo.
  * roleta_motivo: por que a roleta está em jogo, enquanto a situação for
  * PARTIDA_ROLETA.
  * risco_da_mao e estado_do_risco_da_mao: risco e gerador como estavam quando a
@@ -147,6 +170,8 @@ typedef struct {
     Torneio torneio_da_mao;
     unsigned semente_da_mao;
     uint64_t estado_das_sementes;
+    CheatState cheats;
+    CheatState cheats_da_mao;
     SistemaRisco risco;
     uint64_t estado_do_risco;
     RoletaMotivo roleta_motivo;
@@ -169,7 +194,8 @@ typedef struct {
  * estado_das_sementes: estado do gerador das sementes das próximas mãos.
  * rng_acao e rng_equidade: estados dos geradores da IA.
  * risco e estado_do_risco: risco e gerador da roleta no início da mão.
- * adversario_embriagado: modo embriagado da IA.
+ * cheats: estado das trapaças no início da mão (inclui a bebedeira e a carta
+ * da manga).
  * situacao: situação da partida quando foi guardada.
  * cartas, board e cartas_no_board: cartas da mão quando foi guardada.
  * fichas: fichas de cada assento na mesa quando foi guardada.
@@ -183,7 +209,7 @@ typedef struct {
     uint64_t rng_equidade;
     SistemaRisco risco;
     uint64_t estado_do_risco;
-    bool adversario_embriagado;
+    CheatState cheats;
     PartidaSituacao situacao;
     PokerCard cartas[2][2];
     PokerCard board[MAO_CARTAS_NO_BOARD];
@@ -279,6 +305,65 @@ PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_
  * esperando por isso (inclusive depois de falência, morte ou título).
  */
 bool partida_continuar(Partida *partida);
+
+/**
+ * Diz se o jogador pode pedir a trapaça agora, sem executá-la. A interface usa
+ * isto para mostrar quais opções valem.
+ *
+ * @param partida partida a consultar.
+ * @param pedido a trapaça e seus parâmetros.
+ * @return POKER_OK se vale; POKER_ERR_ARGUMENT se o pedido é inválido (tipo,
+ * carta da mão ou carta pedida); POKER_ERR_TURN se a vez é da IA;
+ * POKER_ERR_STATE se não há mão em andamento; POKER_ERR_CHIPS se pagar
+ * deixaria o jogador sem fichas; POKER_ERR_ACTION se a regra não deixa agora
+ * (suborno já usado na mão, carta já marcada, sem espaço para marcar, carta
+ * pedida já à vista ou na manga, ou nenhuma rua por vir).
+ */
+PokerStatus partida_pode_trapacear(const Partida *partida, PedidoTrapaca pedido);
+
+/**
+ * Quanto a trapaça custa agora, em fichas, tirado da pilha do jogador na hora
+ * do pedido. O cúmplice custa o big blind vezes uma a mais que seus usos
+ * naquele nível de blind; o suborno custa as fichas iniciais do adversário
+ * divididas por PARTIDA_SUBORNO_DIVISOR, vezes 1 (carta na mesa), 2 (carta na
+ * mão) ou 3 (ver as cartas do adversário); as demais não custam.
+ *
+ * @param partida partida a consultar.
+ * @param tipo a trapaça.
+ * @return o custo; 0 se não há custo ou o tipo é inválido.
+ */
+PokerChips partida_custo_da_trapaca(const Partida *partida, TipoDePedido tipo);
+
+/**
+ * Chance, de 0 a 100, de o jogador ser descoberto se tentar a trapaça agora:
+ * risco-base, usos já feitos neste confronto, perfil do adversário e o estado
+ * dele (sóbrio ou embriagado).
+ *
+ * @param partida partida a consultar.
+ * @param tipo a trapaça.
+ * @return a chance em %; -1 se o tipo é inválido.
+ */
+int partida_chance_de_descoberta(const Partida *partida, TipoDePedido tipo);
+
+/**
+ * Tenta a trapaça pedida na vez do jogador. Cobra o custo da pilha dele (e
+ * tira o mesmo total do total da mão, porque essas fichas saem de
+ * circulação), sorteia a recusa do dealer, se for suborno, e a descoberta
+ * com os geradores da Partida, e aplica o efeito. O pedido entra no registro
+ * da mão e a tentativa vira EVENTO_TRAPACA. Não gasta a vez do jogador.
+ *
+ * Se o jogador é descoberto, a partida vai para PARTIDA_ROLETA (motivo
+ * ROLETA_DESCOBERTO) e a trapaça não faz efeito. Pedidos que partida_pode_trapacear
+ * recusa não alteram nada e não gastam sorteio.
+ *
+ * @param partida partida em PARTIDA_VEZ_DO_JOGADOR.
+ * @param pedido a trapaça e seus parâmetros.
+ * @param resultado recebe TRAPACA_SUCESSO, TRAPACA_DESCOBERTA ou
+ * TRAPACA_RECUSADA (o dealer pegou o dinheiro e não fez nada); pode ser NULL.
+ * @return POKER_OK se a trapaça foi tentada; os mesmos códigos de erro de
+ * partida_pode_trapacear se não foi.
+ */
+PokerStatus partida_trapacear(Partida *partida, PedidoTrapaca pedido, CheatResult *resultado);
 
 /**
  * Puxa o gatilho da roleta russa. O resultado sai do gerador da partida, e

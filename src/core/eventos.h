@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "core/pedidos.h"
 #include "poker.h"
 
 #define FILA_EVENTOS_CAPACIDADE 256
@@ -20,6 +21,7 @@
  * EVENTO_SHOWDOWN: as mãos são reveladas; só ocorre se ninguém desistiu.
  * EVENTO_POTE_PAGO: o pote foi pago e a mão terminou.
  * EVENTO_ROLETA: o jogador puxou o gatilho da roleta russa.
+ * EVENTO_TRAPACA: uma trapaça foi tentada ou fez efeito.
  */
 typedef enum {
     EVENTO_MAO_INICIADA = 0,
@@ -28,7 +30,8 @@ typedef enum {
     EVENTO_BOARD_REVELADO,
     EVENTO_SHOWDOWN,
     EVENTO_POTE_PAGO,
-    EVENTO_ROLETA
+    EVENTO_ROLETA,
+    EVENTO_TRAPACA
 } TipoEvento;
 
 /**
@@ -139,6 +142,34 @@ typedef struct {
 } EventoRoleta;
 
 /**
+ * Dados de EVENTO_TRAPACA.
+ *
+ * pedido: qual trapaça.
+ * resultado: TRAPACA_SUCESSO se fez efeito, TRAPACA_DESCOBERTA se o jogador
+ * foi pego (a roleta vem em seguida) e TRAPACA_RECUSADA se o dealer pegou o
+ * dinheiro e não fez o serviço.
+ * na_distribuicao: true se o efeito veio quando as cartas foram dadas, e não
+ * na hora do pedido: a carta do suborno entrando na mesa ou na mão, ou uma
+ * carta marcada reconhecida na mão do adversário.
+ * custo: fichas que o pedido tirou do jogador.
+ * cartas e quantidade_de_cartas: as cartas envolvidas: a marcada, a recebida
+ * do dealer, as duas do adversário (PEDIDO_SUBORNO_VER) ou a nova carta da
+ * mão (PEDIDO_MANGA).
+ * tem_categoria e categoria: no cúmplice, a categoria da melhor mão do
+ * adversário com as cartas à vista.
+ */
+typedef struct {
+    TipoDePedido pedido;
+    CheatResult resultado;
+    bool na_distribuicao;
+    PokerChips custo;
+    PokerCard cartas[2];
+    int quantidade_de_cartas;
+    bool tem_categoria;
+    PokerCategory categoria;
+} EventoTrapaca;
+
+/**
  * Um evento do jogo. O campo tipo diz qual membro da união vale.
  */
 typedef struct {
@@ -151,6 +182,7 @@ typedef struct {
         EventoShowdown showdown;
         EventoPotePago pote;
         EventoRoleta roleta;
+        EventoTrapaca trapaca;
     };
 } EventoJogo;
 

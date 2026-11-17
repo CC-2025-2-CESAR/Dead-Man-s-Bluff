@@ -123,6 +123,7 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
 
     CHECK(partida_iniciar(&partida, semente));
     partida.adversario_embriagado = embriagado;
+    partida.cheats.maos_embriagado = embriagado ? PARTIDA_USOS_MAXIMOS : 0;
     total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
 
     while (!terminou) {
@@ -796,17 +797,27 @@ static void test_o_resultado_da_roleta_so_depende_do_gerador_da_partida(void)
 {
     int mortes = 0;
     int sobrevivencias = 0;
+    unsigned semente = 0;
+
+    /* O rand da biblioteca muda de um sistema para outro: procura uma semente que leve à roleta. */
+    for (unsigned candidata = 1; candidata <= 300 && semente == 0; candidata++) {
+        Partida teste = {0};
+
+        if (levar_a_roleta(&teste, candidata, 3, 0)) {
+            semente = candidata;
+        }
+
+        partida_encerrar(&teste);
+    }
+
+    CHECK(semente != 0);
 
     for (uint64_t estado = 1; estado <= 60; estado++) {
         Partida a = {0};
         Partida b = {0};
 
-        if (!levar_a_roleta(&a, 7, 3, 0)) {
-            partida_encerrar(&a);
-            break;
-        }
-
-        CHECK(levar_a_roleta(&b, 7, 3, 0));
+        CHECK(levar_a_roleta(&a, semente, 3, 0));
+        CHECK(levar_a_roleta(&b, semente, 3, 0));
         a.estado_do_risco = estado;
         b.estado_do_risco = estado;
 
@@ -932,7 +943,7 @@ static void test_reiniciar_partida_libera_a_anterior(void)
     CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
     CHECK(partida.torneio.maos_jogadas == 0);
     CHECK(fila_eventos_tamanho(&partida.eventos) == 3);
-    CHECK(partida.mao.baralho.count == 48);
+    CHECK(partida.mao.baralho.count == 47);
 
     partida_encerrar(&partida);
     CHECK(partida.mao.baralho.count == 0 && partida.mao.baralho.head == NULL);

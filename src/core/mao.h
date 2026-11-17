@@ -30,6 +30,35 @@ typedef enum {
 } MaoSituacao;
 
 /**
+ * O que uma trapaça pode ter pedido para a mão que vai começar.
+ *
+ * reservar_carta e carta_reservada: tira a carta do baralho antes de
+ * embaralhar, para ela ficar com o jogador (a carta da manga) e o baralho
+ * continuar sem cartas repetidas.
+ * dar_carta_ao_jogador e carta_para_o_jogador: a carta sai do baralho e
+ * ocupa o lugar da primeira carta do jogador, que volta ao baralho.
+ */
+typedef struct {
+    bool reservar_carta;
+    PokerCard carta_reservada;
+    bool dar_carta_ao_jogador;
+    PokerCard carta_para_o_jogador;
+} MaoAjustes;
+
+/**
+ * Resultado de um ajuste que depende do baralho.
+ *
+ * MAO_AJUSTE_NENHUM: nenhum ajuste foi pedido, ou ainda não houve ocasião.
+ * MAO_AJUSTE_APLICADO: a carta foi trocada.
+ * MAO_AJUSTE_FALHOU: a carta pedida não estava mais no baralho.
+ */
+typedef enum {
+    MAO_AJUSTE_NENHUM = 0,
+    MAO_AJUSTE_APLICADO,
+    MAO_AJUSTE_FALHOU
+} MaoAjusteResultado;
+
+/**
  * Estado de uma mão de pôquer, do embaralhamento até o pagamento do pote.
  *
  * baralho: cartas que ainda não saíram. É liberado quando a mão termina.
@@ -46,6 +75,11 @@ typedef enum {
  * quantidade_de_acoes: quantas posições de acoes estão preenchidas.
  * acoes_perdidas: true se passaram de MAO_ACOES_MAXIMAS e o registro ficou
  * incompleto; nesse caso a mão não pode mais ser refeita pelas ações.
+ * carta_do_jogador: resultado de MaoAjustes.dar_carta_ao_jogador.
+ * carta_forcada_pendente e carta_forcada: uma carta que entra no board como
+ * a primeira da próxima rua (ver mao_forcar_proxima_carta_do_board).
+ * carta_forcada_resultado: o que aconteceu quando a rua foi distribuída; quem
+ * lê pode voltar o campo a MAO_AJUSTE_NENHUM.
  *
  * Inicialize com Mao mao = {0}; antes da primeira chamada a mao_iniciar.
  */
@@ -61,6 +95,10 @@ typedef struct {
     PokerAction acoes[MAO_ACOES_MAXIMAS];
     size_t quantidade_de_acoes;
     bool acoes_perdidas;
+    MaoAjusteResultado carta_do_jogador;
+    bool carta_forcada_pendente;
+    PokerCard carta_forcada;
+    MaoAjusteResultado carta_forcada_resultado;
 } Mao;
 
 /**
@@ -100,6 +138,41 @@ bool mao_iniciar_com_eventos(
     const Torneio *torneio,
     FilaEventos *eventos
 );
+
+/**
+ * Faz o mesmo que mao_iniciar_com_eventos, depois de aplicar os ajustes que
+ * as trapaças pediram: tirar uma carta do baralho antes de embaralhar e dar
+ * uma carta específica ao jogador. As cartas e os eventos já saem com os
+ * ajustes aplicados. Se a carta para o jogador não estiver no baralho,
+ * Mao.carta_do_jogador fica MAO_AJUSTE_FALHOU e a mão segue sem a troca.
+ *
+ * @param mao mão a iniciar, zerada ou já usada.
+ * @param torneio torneio em andamento; a mão não o altera.
+ * @param eventos fila que recebe os eventos, ou NULL para não registrar.
+ * @param ajustes ajustes pedidos, ou NULL para nenhum.
+ * @return true se a mão começou; false também se a carta reservada for
+ * inválida.
+ */
+bool mao_iniciar_com_ajustes(
+    Mao *mao,
+    const Torneio *torneio,
+    FilaEventos *eventos,
+    const MaoAjustes *ajustes
+);
+
+/**
+ * Pede que a primeira carta da próxima rua do board seja a carta dada, no
+ * lugar da que sairia do baralho (que volta ao baralho, na mesma posição).
+ * Só vale numa mão em andamento que ainda tem uma rua por distribuir, e uma
+ * vez por vez. Se a carta já tiver saído do baralho quando a rua for
+ * distribuída (foi dada a alguém ou queimada), o pedido falha e o board sai
+ * como seria: Mao.carta_forcada_resultado diz o que houve.
+ *
+ * @param mao mão em andamento.
+ * @param carta carta desejada, válida.
+ * @return true se o pedido ficou registrado.
+ */
+bool mao_forcar_proxima_carta_do_board(Mao *mao, PokerCard carta);
 
 /**
  * Aplica a ação do assento da vez (Mao.mesa.actor) e avança a mão até a

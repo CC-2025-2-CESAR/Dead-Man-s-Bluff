@@ -139,6 +139,22 @@ static bool distribuir_rua(Mao *mao, PokerStreet rua)
         return false;
     }
 
+    if (mao->carta_forcada_pendente) {
+        /* A carta pedida entra no lugar da primeira carta nova, que volta ao baralho. */
+        mao->carta_forcada_pendente = false;
+
+        if (mao->board[cartas_antes].rank == mao->carta_forcada.rank &&
+            mao->board[cartas_antes].suit == mao->carta_forcada.suit) {
+            /* Já era a carta que ia sair: nada a trocar. */
+            mao->carta_forcada_resultado = MAO_AJUSTE_APLICADO;
+        } else if (deck_exchange(&mao->baralho, mao->carta_forcada, mao->board[cartas_antes])) {
+            mao->board[cartas_antes] = mao->carta_forcada;
+            mao->carta_forcada_resultado = MAO_AJUSTE_APLICADO;
+        } else {
+            mao->carta_forcada_resultado = MAO_AJUSTE_FALHOU;
+        }
+    }
+
     registrar_board(mao, rua, cartas_antes);
     return true;
 }
@@ -223,7 +239,7 @@ static PokerStatus avancar(Mao *mao)
  * Embaralha, distribui as cartas e inicia o motor com os dados do torneio,
  * avançando a mão se ninguém tiver ação a tomar.
  */
-static bool preparar_mao(Mao *mao, const Torneio *torneio)
+static bool preparar_mao(Mao *mao, const Torneio *torneio, const MaoAjustes *ajustes)
 {
     PokerChips stacks[2];
 
@@ -233,10 +249,30 @@ static bool preparar_mao(Mao *mao, const Torneio *torneio)
         return false;
     }
 
+    if (ajustes != NULL && ajustes->reservar_carta &&
+        !deck_remove_card(&mao->baralho, ajustes->carta_reservada)) {
+        return false;
+    }
+
     deck_shuffle(&mao->baralho);
 
     if (!deck_deal(&mao->baralho, torneio->dealer, mao->cartas)) {
         return false;
+    }
+
+    if (ajustes != NULL && ajustes->dar_carta_ao_jogador) {
+        PokerCard *primeira = &mao->cartas[TORNEIO_ASSENTO_JOGADOR][0];
+
+        if (primeira->rank == ajustes->carta_para_o_jogador.rank &&
+            primeira->suit == ajustes->carta_para_o_jogador.suit) {
+            /* Já era a carta pedida: nada a trocar. */
+            mao->carta_do_jogador = MAO_AJUSTE_APLICADO;
+        } else if (deck_exchange(&mao->baralho, ajustes->carta_para_o_jogador, *primeira)) {
+            *primeira = ajustes->carta_para_o_jogador;
+            mao->carta_do_jogador = MAO_AJUSTE_APLICADO;
+        } else {
+            mao->carta_do_jogador = MAO_AJUSTE_FALHOU;
+        }
     }
 
     if (poker_start_hand(
@@ -265,6 +301,16 @@ bool mao_iniciar_com_eventos(
     FilaEventos *eventos
 )
 {
+    return mao_iniciar_com_ajustes(mao, torneio, eventos, NULL);
+}
+
+bool mao_iniciar_com_ajustes(
+    Mao *mao,
+    const Torneio *torneio,
+    FilaEventos *eventos,
+    const MaoAjustes *ajustes
+)
+{
     if (mao == NULL || torneio == NULL ||
         torneio->situacao != TORNEIO_EM_ANDAMENTO) {
         return false;
@@ -274,13 +320,29 @@ bool mao_iniciar_com_eventos(
     *mao = (Mao){0};
     mao->eventos = eventos;
 
-    if (preparar_mao(mao, torneio)) {
+    if (preparar_mao(mao, torneio, ajustes)) {
         return true;
     }
 
     mao_liberar(mao);
     *mao = (Mao){0};
     return false;
+}
+
+bool mao_forcar_proxima_carta_do_board(Mao *mao, PokerCard carta)
+{
+    if (mao == NULL || mao->situacao != MAO_EM_ANDAMENTO ||
+        mao->carta_forcada_pendente || mao->mesa.street >= POKER_RIVER ||
+        mao->cartas_no_board >= MAO_CARTAS_NO_BOARD ||
+        carta.rank < 2 || carta.rank > 14 ||
+        carta.suit < POKER_CLUBS || carta.suit > POKER_SPADES) {
+        return false;
+    }
+
+    mao->carta_forcada = carta;
+    mao->carta_forcada_pendente = true;
+    mao->carta_forcada_resultado = MAO_AJUSTE_NENHUM;
+    return true;
 }
 
 PokerStatus mao_agir(Mao *mao, PokerAction acao)
