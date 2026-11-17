@@ -8,23 +8,20 @@
 PokerAIStyle partida_estilo_do_adversario(const Torneio *torneio)
 {
     PokerChips inicial = torneio_fichas_iniciais_adversario(torneio->confronto);
-    bool perdendo = inicial > 0 &&
-                    torneio->fichas_adversario * 100 <= inicial * PARTIDA_ESTILO_ATRAS_PCT;
-    bool ganhando = inicial > 0 &&
-                    torneio->fichas_adversario * 100 >= inicial * PARTIDA_ESTILO_FRENTE_PCT;
 
-    switch (torneio->confronto) {
-        case 0:
-            return perdendo ? POKER_AI_CAUTIOUS : POKER_AI_AGGRESSIVE;
-
-        case 1:
-            return ganhando ? POKER_AI_AGGRESSIVE : POKER_AI_CAUTIOUS;
-
-        default:
-            return ganhando ? POKER_AI_AGGRESSIVE
-                 : perdendo ? POKER_AI_CAUTIOUS
-                 : POKER_AI_BALANCED;
+    if (inicial <= 0) {
+        return POKER_AI_BALANCED;
     }
+
+    if (torneio->fichas_adversario * 100 <= inicial * PARTIDA_ESTILO_ATRAS_PCT) {
+        return POKER_AI_CAUTIOUS;
+    }
+
+    if (torneio->fichas_adversario * 100 >= inicial * PARTIDA_ESTILO_FRENTE_PCT) {
+        return POKER_AI_AGGRESSIVE;
+    }
+
+    return POKER_AI_BALANCED;
 }
 
 static bool carta_valida(PokerCard carta)
@@ -38,14 +35,18 @@ static bool mesma_carta(PokerCard a, PokerCard b)
     return a.rank == b.rank && a.suit == b.suit;
 }
 
-/** Perfil de risco do adversário do confronto atual. */
+/**
+ * Perfil de risco do adversário do confronto atual: o quanto ele repara nas
+ * trapaças. É de cada oponente e sobe de um confronto para o outro; não segue
+ * o estilo de jogo, que muda durante o confronto.
+ */
 static ProbPerfilIA perfil_do_adversario(const Partida *partida)
 {
-    switch (partida->ia.style) {
-        case POKER_AI_AGGRESSIVE:
+    switch (partida->torneio.confronto) {
+        case 0:
             return PROB_IA_AGRESSIVO;
 
-        case POKER_AI_CAUTIOUS:
+        case 1:
             return PROB_IA_MEDROSO;
 
         default:
@@ -590,13 +591,13 @@ const char *partida_nome_do_adversario(int confronto)
 {
     switch (confronto) {
         case 0:
-            return "Agressivo";
+            return "Oponente 1";
 
         case 1:
-            return "Medroso";
+            return "Oponente 2";
 
         case 2:
-            return "Desconfiado";
+            return "Oponente 3";
 
         default:
             return "?";

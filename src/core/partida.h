@@ -138,7 +138,7 @@ typedef enum {
  * mao: mão atual; depois do fim dela guarda o resultado até a próxima.
  * eventos: fila que a interface consome a cada quadro (ver eventos.h).
  * rng_acao e rng_equidade: geradores próprios da IA, que duram a partida.
- * ia: contexto da IA, com o perfil do confronto atual.
+ * ia: contexto da IA, com o estilo da mão atual (ver partida_estilo_do_adversario).
  * adversario_embriagado: modo embriagado da IA. Deriva de cheats: vale
  * enquanto restam mãos de bebedeira (cheats.maos_embriagado > 0).
  * situacao: situação atual da partida.
@@ -305,7 +305,7 @@ PokerStatus partida_agir_adversario(Partida *partida, PokerAIDecisionInfo *info_
 
 /**
  * Passa para a mão seguinte depois do fim de uma mão. Se o adversário foi
- * derrotado, antes disso avança o confronto, troca o perfil da IA, reinicia
+ * derrotado, antes disso avança o confronto, reinicia
  * os blinds e tira uma bala da roleta (a suspeita também recomeça).
  *
  * @param partida partida em PARTIDA_MAO_ENCERRADA ou PARTIDA_CONFRONTO_VENCIDO.
@@ -344,8 +344,9 @@ PokerChips partida_custo_da_trapaca(const Partida *partida, TipoDePedido tipo);
 
 /**
  * Chance, de 0 a 100, de o jogador ser descoberto se tentar a trapaça agora:
- * risco-base, usos já feitos neste confronto, perfil do adversário e o estado
- * dele (sóbrio ou embriagado).
+ * risco-base, usos já feitos neste confronto, a desconfiança do oponente do
+ * confronto (cresce de um oponente para o seguinte e não depende do estilo de
+ * jogo dele) e o estado dele (sóbrio ou embriagado).
  *
  * @param partida partida a consultar.
  * @param tipo a trapaça.
@@ -400,8 +401,9 @@ bool partida_puxar_gatilho(Partida *partida);
 PokerStatus partida_acoes_legais(const Partida *partida, PokerLegalActions *out);
 
 /**
- * Dá o nome do adversário de um confronto: Agressivo, Medroso ou
- * Desconfiado.
+ * Dá o nome (provisório) do adversário de um confronto: Oponente 1, 2 ou 3.
+ * O nome não diz como ele joga, porque o estilo muda durante o confronto
+ * (ver partida_estilo_do_adversario).
  *
  * @param confronto índice do confronto, de 0 a TORNEIO_CONFRONTOS - 1.
  * @return o nome, ou "?" se o índice for inválido.
@@ -410,12 +412,12 @@ const char *partida_nome_do_adversario(int confronto);
 
 /**
  * Diz como o adversário joga a mão que começa com o torneio neste estado.
- * Cada adversário tem um estilo de base e muda de estilo conforme as fichas
- * que tem em relação às que trouxe para o confronto:
+ * Todo oponente começa o confronto jogando normal (equilibrado) e muda de
+ * estilo conforme as fichas que tem em relação às que trouxe para o confronto:
  *
- * - Agressivo (1º): fica Medroso quando está perdendo.
- * - Medroso (2º): fica Agressivo quando está ganhando.
- * - Desconfiado (3º, equilibrado): fica Agressivo ganhando e Medroso perdendo.
+ * - perdendo (PARTIDA_ESTILO_ATRAS_PCT ou menos): joga medroso;
+ * - ganhando (PARTIDA_ESTILO_FRENTE_PCT ou mais): joga agressivo;
+ * - no meio: joga normal.
  *
  * Depende só do torneio, que o salvamento já guarda no começo da mão; por
  * isso o estilo se refaz ao continuar sem entrar no arquivo. O estilo vale
