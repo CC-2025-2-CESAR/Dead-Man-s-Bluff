@@ -1299,6 +1299,57 @@ static void desenhar_painel_das_trapacas(const Partida *partida)
         DrawText(aviso_das_trapacas, 40, y, 22, COR_OURO);
 }
 
+/** As imagens das cartas ocupam a mesa; o adversário mostra apenas os versos. */
+static void desenhar_cartas_da_mesa(const Partida *partida)
+{
+    const Mao *mao = &partida->mao;
+
+    if (mao->situacao == MAO_VAZIA)
+        return;
+
+    desenhar_texto_centralizado("MESA", 211, 19, COR_OURO);
+
+    for (size_t i = 0; i < mao->cartas_no_board; i++) {
+        PokerCard carta = mao->board[i];
+        Rectangle area = { 375.0f + (float)i * 108.0f, 249.0f, 94.0f, 132.0f };
+
+        cartas_desenhar_frente(carta, is_card_marked(&partida->cheats, carta), area);
+    }
+
+    DrawText("VOCE", 314, 387, 19, COR_OURO);
+    DrawText("ADVERSARIO", 766, 387, 19, COR_OURO);
+
+    for (int i = 0; i < 2; i++) {
+        PokerCard carta = mao->cartas[TORNEIO_ASSENTO_JOGADOR][i];
+        Rectangle area = { 314.0f + (float)i * 106.0f, 412.0f, 94.0f, 132.0f };
+
+        cartas_desenhar_frente(carta, is_card_marked(&partida->cheats, carta), area);
+
+        if (adversario_recebeu_cartas) {
+            cartas_desenhar_verso(marcou_carta_do_adversario[i], AREAS_DO_ADVERSARIO[i]);
+
+            if (marcou_carta_do_adversario[i] && tela_de_trapacas == TRAPACAS_FECHADAS &&
+                mouse_sobre(AREAS_DO_ADVERSARIO[i]))
+                cursor_sobre_botao = true;
+        }
+    }
+}
+
+static void desenhar_carta_ampliada(void)
+{
+    if (carta_marcada_ampliada < 0)
+        return;
+
+    /* O clique no fundo fecha a ampliação sem acionar os botões da mesa. */
+    total_de_botoes = 0;
+    cursor_sobre_botao = false;
+    DrawRectangle(0, 0, LARGURA_TELA, ALTURA_TELA, (Color){ 0, 0, 0, 226 });
+    desenhar_texto_centralizado("CARTA MARCADA", 112, 30, COR_OURO);
+    cartas_desenhar_frente(cartas_do_adversario[carta_marcada_ampliada], true,
+                          (Rectangle){ 530.0f, 192.0f, 220.0f, 309.0f });
+    desenhar_texto_centralizado("Clique ou pressione ESC para fechar", 535, 20, COR_TEXTO);
+}
+
 void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida)
 {
     const Mao *mao = &partida->mao;
@@ -1313,6 +1364,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
 
     registrar_disponibilidade(partida);
     comecar_desenho();
+    cartas_do_adversario_visiveis = false;
 
     if (partida->situacao == PARTIDA_CONFRONTO_VENCIDO && textura_vitoria.id != 0) {
         DrawTexturePro(
@@ -1355,11 +1407,16 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         );
     }
 
-    if (animacoes_embaralhando()) {
+    if (animacoes_ativas()) {
         animacoes_desenhar();
         terminar_desenho();
         return;
     }
+
+    DrawRectangle(0, 0, LARGURA_TELA, 181, (Color){ 6, 9, 8, 218 });
+    DrawRectangle(0, 553, LARGURA_TELA, ALTURA_TELA - 553, (Color){ 6, 9, 8, 230 });
+    DrawLine(0, 180, LARGURA_TELA, 180, COR_OURO);
+    cartas_do_adversario_visiveis = adversario_recebeu_cartas && mao->situacao != MAO_VAZIA;
 
     snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s     MÃO %d     BLINDS %lld/%lld",
              partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
@@ -1376,23 +1433,6 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
                                   : mesa->player[TORNEIO_ASSENTO_ADVERSARIO].chips),
              (long long)poker_pot(mesa),
              partida->risco.balas_roleta);
-    desenhar_linha(linha, &y, COR_TEXTO);
-
-    {
-        char c0[8];
-        char c1[8];
-
-        texto_da_carta(mao->cartas[TORNEIO_ASSENTO_JOGADOR][0], c0, sizeof c0);
-        texto_da_carta(mao->cartas[TORNEIO_ASSENTO_JOGADOR][1], c1, sizeof c1);
-        snprintf(linha, sizeof linha, "SUAS CARTAS: %s%s %s%s", c0,
-                 is_card_marked(&partida->cheats, mao->cartas[TORNEIO_ASSENTO_JOGADOR][0]) ? " (marcada)" : "",
-                 c1,
-                 is_card_marked(&partida->cheats, mao->cartas[TORNEIO_ASSENTO_JOGADOR][1]) ? " (marcada)" : "");
-        desenhar_linha(linha, &y, COR_TEXTO);
-    }
-
-    texto_das_cartas(mao->board, (int)mao->cartas_no_board, cartas, sizeof cartas);
-    snprintf(linha, sizeof linha, "BOARD: %s", mao->cartas_no_board > 0 ? cartas : "-");
     desenhar_linha(linha, &y, COR_TEXTO);
 
     quantidade = mao_cartas_ordenadas(mao, TORNEIO_ASSENTO_JOGADOR, ordenadas);
@@ -1428,9 +1468,16 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         snprintf(cartas, sizeof cartas, "ocultas");
     }
 
-    snprintf(linha, sizeof linha, "CARTAS DO ADVERSÁRIO: %s", cartas);
-    desenhar_linha(linha, &y, COR_TEXTO);
-    y += 16;
+    if (terminou && mao->resultado.showdown) {
+        snprintf(linha, sizeof linha, "SHOWDOWN: %s", cartas);
+        DrawText(linha, 40, 151, 18, COR_TEXTO_SUAVE);
+    } else if (ha_cartas_reveladas) {
+        snprintf(linha, sizeof linha, "SUBORNO: %s", cartas);
+        DrawText(linha, 40, 151, 18, COR_TEXTO_SUAVE);
+    }
+
+    desenhar_cartas_da_mesa(partida);
+    y = 573;
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
@@ -1479,15 +1526,19 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
             break;
     }
 
-    y += 32 + 16 + extra;
+    int eventos_a_mostrar = extra > 0 ? 1 : 2;
+    int primeiro_evento = eventos_registrados > eventos_a_mostrar
+        ? eventos_registrados - eventos_a_mostrar : 0;
 
-    for (int i = 0; i < eventos_registrados; i++) {
-        desenhar_linha(registro_de_eventos[i], &y, COR_TEXTO_SUAVE);
-    }
+    for (int i = primeiro_evento; i < eventos_registrados; i++)
+        DrawText(registro_de_eventos[i], 40, 617 + extra + (i - primeiro_evento) * 26,
+                 17, COR_TEXTO_SUAVE);
 
     if (tela_de_trapacas == TRAPACAS_FECHADAS)
-        botao_de_texto("ESC ou clique aqui volta ao menu", 40, ALTURA_TELA - 40, 20, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
+        botao_de_texto("ESC ou clique aqui volta ao menu", 40, ALTURA_TELA - 34, 17,
+                       COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
 
     desenhar_painel_das_trapacas(partida);
+    desenhar_carta_ampliada();
     terminar_desenho();
 }
