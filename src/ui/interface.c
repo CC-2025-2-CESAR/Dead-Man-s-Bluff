@@ -57,7 +57,7 @@ static Camera2D camera_da_janela(void)
     return camera;
 }
 
-#define BOTOES_MAXIMOS 24
+#define BOTOES_MAXIMOS 40
 #define BOTAO_NENHUM (-1)
 #define BOTAO_RESOLUCAO 100
 #define BOTAO_VOLTAR_CONFIGURACOES 200
@@ -429,9 +429,222 @@ double interface_tempo_do_quadro(void)
     return (double)GetFrameTime();
 }
 
+#define BOTAO_TRAPACAS 308
+#define BOTAO_TRAPACA 400
+#define BOTAO_CARTA_DA_MAO 420
+#define BOTAO_VALOR_MENOS 430
+#define BOTAO_VALOR_MAIS 431
+#define BOTAO_NAIPE_ACIMA 432
+#define BOTAO_NAIPE_ABAIXO 433
+#define BOTAO_CONFIRMAR_CARTA 434
+#define BOTAO_VOLTAR_DAS_TRAPACAS 435
+
+/** Telas do menu das trapaças, que aparece por cima da mesa na vez do jogador. */
+typedef enum {
+    TRAPACAS_FECHADAS = 0,
+    TRAPACAS_MENU,
+    TRAPACAS_CARTA_DA_MAO,
+    TRAPACAS_ESCOLHER_CARTA
+} TelaDeTrapacas;
+
+static TelaDeTrapacas tela_de_trapacas;
+static TipoDePedido trapaca_em_andamento;
+static int destaque_das_trapacas;
+static int valor_do_seletor = 14;
+static int naipe_do_seletor = POKER_SPADES;
+static const char *aviso_das_trapacas;
+
+/* O que o desenho do quadro anterior viu da partida, para a leitura de entrada consultar. */
+static bool vez_do_jogador_vista;
+static PokerStatus trapaca_status[PEDIDO_TOTAL];
+static bool trapaca_vale_para_a_carta[PEDIDO_TOTAL][2];
+static PokerCard cartas_a_vista[10];
+static int total_de_cartas_a_vista;
+
+/** Cartas do adversário que o suborno mostrou na mão atual. */
+static PokerCard cartas_reveladas[2];
+static bool ha_cartas_reveladas;
+
+static bool carta_esta_a_vista(PokerCard carta)
+{
+    for (int i = 0; i < total_de_cartas_a_vista; i++) {
+        if (cartas_a_vista[i].rank == carta.rank && cartas_a_vista[i].suit == carta.suit)
+            return true;
+    }
+
+    return false;
+}
+
+static PedidoTrapaca montar_pedido(TipoDePedido tipo, int carta_da_mao, PokerCard carta)
+{
+    PedidoTrapaca pedido = { tipo, carta_da_mao, carta };
+
+    return pedido;
+}
+
+/** Diz por que uma trapaça não pode ser escolhida agora. */
+static const char *motivo_da_trapaca(PokerStatus status)
+{
+    switch (status) {
+        case POKER_ERR_CHIPS:
+            return "Você não tem fichas para pagar isso.";
+
+        case POKER_ERR_ACTION:
+            return "Isso não vale agora.";
+
+        default:
+            break;
+    }
+
+    return "Indisponível agora.";
+}
+
+static void fechar_trapacas(void)
+{
+    tela_de_trapacas = TRAPACAS_FECHADAS;
+    aviso_das_trapacas = NULL;
+}
+
+/** Abre o menu das trapaças, se for a vez do jogador. */
+static void abrir_trapacas(void)
+{
+    if (!vez_do_jogador_vista)
+        return;
+
+    tela_de_trapacas = TRAPACAS_MENU;
+    destaque_das_trapacas = 0;
+    aviso_das_trapacas = NULL;
+}
+
+/** Escolhe uma trapaça no menu: pede a carta que faltar, ou devolve o pedido pronto. */
+static void escolher_trapaca(TipoDePedido tipo, EntradaMesa *entrada)
+{
+    if (tipo <= PEDIDO_NENHUM || tipo >= PEDIDO_TOTAL)
+        return;
+
+    if (trapaca_status[tipo] != POKER_OK) {
+        aviso_das_trapacas = motivo_da_trapaca(trapaca_status[tipo]);
+        return;
+    }
+
+    aviso_das_trapacas = NULL;
+
+    switch (tipo) {
+        case PEDIDO_MARCAR_CARTA:
+        case PEDIDO_MANGA:
+            trapaca_em_andamento = tipo;
+            tela_de_trapacas = TRAPACAS_CARTA_DA_MAO;
+            break;
+
+        case PEDIDO_SUBORNO_MESA:
+        case PEDIDO_SUBORNO_MAO:
+            trapaca_em_andamento = tipo;
+            tela_de_trapacas = TRAPACAS_ESCOLHER_CARTA;
+            break;
+
+        default:
+            entrada->pedido = montar_pedido(tipo, 0, (PokerCard){ 0, POKER_CLUBS });
+            fechar_trapacas();
+            break;
+    }
+}
+
+/** Lê o teclado e o mouse enquanto o menu das trapaças está aberto. */
+static void ler_entrada_das_trapacas(EntradaMesa *entrada)
+{
+    int botao = botao_clicado();
+    bool voltar = IsKeyPressed(KEY_ESCAPE) || botao == BOTAO_VOLTAR_DAS_TRAPACAS;
+
+    if (tela_de_trapacas == TRAPACAS_MENU) {
+        if (voltar || IsKeyPressed(KEY_T)) {
+            fechar_trapacas();
+            return;
+        }
+
+        for (int i = 0; i < PEDIDO_TOTAL - 1; i++) {
+            if (IsKeyPressed(KEY_ONE + i))
+                escolher_trapaca((TipoDePedido)(i + 1), entrada);
+        }
+
+        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W))
+            destaque_das_trapacas = (destaque_das_trapacas + PEDIDO_TOTAL - 2) % (PEDIDO_TOTAL - 1);
+        else if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S))
+            destaque_das_trapacas = (destaque_das_trapacas + 1) % (PEDIDO_TOTAL - 1);
+
+        if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
+            escolher_trapaca((TipoDePedido)(destaque_das_trapacas + 1), entrada);
+
+        if (mouse_se_moveu()) {
+            int sob = botao_sob_o_mouse();
+
+            if (sob > BOTAO_TRAPACA && sob < BOTAO_TRAPACA + PEDIDO_TOTAL)
+                destaque_das_trapacas = sob - BOTAO_TRAPACA - 1;
+        }
+
+        if (botao > BOTAO_TRAPACA && botao < BOTAO_TRAPACA + PEDIDO_TOTAL)
+            escolher_trapaca((TipoDePedido)(botao - BOTAO_TRAPACA), entrada);
+
+        return;
+    }
+
+    if (voltar) {
+        tela_de_trapacas = TRAPACAS_MENU;
+        aviso_das_trapacas = NULL;
+        return;
+    }
+
+    if (tela_de_trapacas == TRAPACAS_CARTA_DA_MAO) {
+        for (int i = 0; i < 2; i++) {
+            if (IsKeyPressed(KEY_ONE + i) || botao == BOTAO_CARTA_DA_MAO + i) {
+                if (!trapaca_vale_para_a_carta[trapaca_em_andamento][i]) {
+                    aviso_das_trapacas = "Essa carta já está marcada.";
+                    continue;
+                }
+
+                entrada->pedido = montar_pedido(trapaca_em_andamento, i, (PokerCard){ 0, POKER_CLUBS });
+                fechar_trapacas();
+                return;
+            }
+        }
+
+        return;
+    }
+
+    /* TRAPACAS_ESCOLHER_CARTA */
+    if (IsKeyPressed(KEY_RIGHT) || botao == BOTAO_VALOR_MAIS)
+        valor_do_seletor = valor_do_seletor >= 14 ? 2 : valor_do_seletor + 1;
+    else if (IsKeyPressed(KEY_LEFT) || botao == BOTAO_VALOR_MENOS)
+        valor_do_seletor = valor_do_seletor <= 2 ? 14 : valor_do_seletor - 1;
+
+    if (IsKeyPressed(KEY_UP) || botao == BOTAO_NAIPE_ACIMA)
+        naipe_do_seletor = (naipe_do_seletor + 1) % 4;
+    else if (IsKeyPressed(KEY_DOWN) || botao == BOTAO_NAIPE_ABAIXO)
+        naipe_do_seletor = (naipe_do_seletor + 3) % 4;
+
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) || botao == BOTAO_CONFIRMAR_CARTA) {
+        PokerCard carta = { valor_do_seletor, (PokerSuit)naipe_do_seletor };
+
+        if (carta_esta_a_vista(carta)) {
+            aviso_das_trapacas = "Você já vê essa carta. Peça outra.";
+            return;
+        }
+
+        entrada->pedido = montar_pedido(trapaca_em_andamento, 0, carta);
+        fechar_trapacas();
+    }
+}
+
 EntradaMesa interface_mesa_ler_entrada(void)
 {
-    EntradaMesa entrada = {COMANDO_NENHUM, 0, false, false};
+    EntradaMesa entrada = { COMANDO_NENHUM, 0, false, false, { PEDIDO_NENHUM, 0, { 0, POKER_CLUBS } } };
+
+    if (tela_de_trapacas != TRAPACAS_FECHADAS) {
+        ler_entrada_das_trapacas(&entrada);
+        return entrada;
+    }
+
+    if (IsKeyPressed(KEY_T))
+        abrir_trapacas();
 
     if (IsKeyPressed(KEY_F)) {
         entrada.comando = COMANDO_DESISTIR;
@@ -483,6 +696,10 @@ EntradaMesa interface_mesa_ler_entrada(void)
 
         case BOTAO_VOLTAR_DA_MESA:
             entrada.voltar = true;
+            break;
+
+        case BOTAO_TRAPACAS:
+            abrir_trapacas();
             break;
 
         default:
@@ -565,6 +782,8 @@ static const char *nome_da_acao(PokerActionType acao)
 void interface_mesa_limpar_eventos(void)
 {
     eventos_registrados = 0;
+    ha_cartas_reveladas = false;
+    fechar_trapacas();
 }
 
 static const char *nome_da_trapaca(TipoDePedido pedido)
@@ -686,6 +905,7 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
 
     switch (evento->tipo) {
         case EVENTO_MAO_INICIADA:
+            ha_cartas_reveladas = false;
             snprintf(linha, sizeof linha, "Nova mão: dealer %s, blinds %lld/%lld",
                      nome_do_assento(evento->mao_iniciada.dealer),
                      (long long)evento->mao_iniciada.pequeno_blind,
@@ -725,6 +945,14 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             break;
 
         case EVENTO_TRAPACA:
+            if (evento->trapaca.pedido == PEDIDO_SUBORNO_VER &&
+                evento->trapaca.resultado == TRAPACA_SUCESSO &&
+                evento->trapaca.quantidade_de_cartas == 2) {
+                cartas_reveladas[0] = evento->trapaca.cartas[0];
+                cartas_reveladas[1] = evento->trapaca.cartas[1];
+                ha_cartas_reveladas = true;
+            }
+
             linha_da_trapaca(&evento->trapaca, linha, sizeof linha);
             guardar_linha(linha);
             break;
@@ -777,7 +1005,193 @@ static void desenhar_acoes_do_jogador(int y, PokerChips aposta_escolhida)
         x += botao_de_texto("[+]", x, y, 22, COR_OURO, BOTAO_AUMENTAR) + 24;
     }
 
-    botao_de_texto("[A] all-in", x, y, 22, COR_OURO, BOTAO_ALL_IN);
+    x += botao_de_texto("[A] all-in", x, y, 22, COR_OURO, BOTAO_ALL_IN) + 24;
+    botao_de_texto("[T] trapaças", x, y, 22, COR_OURO, BOTAO_TRAPACAS);
+}
+
+/** Escreve o texto de um valor de carta, de 2 a 14. */
+static const char *texto_do_valor(int valor)
+{
+    static const char *VALORES[] = {
+        "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"
+    };
+
+    return valor >= 2 && valor <= 14 ? VALORES[valor - 2] : "?";
+}
+
+static const char *texto_do_naipe(int naipe)
+{
+    static const char *NAIPES[] = { "paus", "ouros", "copas", "espadas" };
+
+    return naipe >= 0 && naipe <= 3 ? NAIPES[naipe] : "?";
+}
+
+/** Anota o que o menu das trapaças precisa saber da partida, e o fecha se a vez não é do jogador. */
+static void registrar_disponibilidade(const Partida *partida)
+{
+    const Mao *mao = &partida->mao;
+    PokerCard livre = { 0, POKER_CLUBS };
+
+    vez_do_jogador_vista = partida->situacao == PARTIDA_VEZ_DO_JOGADOR;
+    total_de_cartas_a_vista = 0;
+
+    if (mao->situacao != MAO_VAZIA) {
+        cartas_a_vista[total_de_cartas_a_vista++] = mao->cartas[TORNEIO_ASSENTO_JOGADOR][0];
+        cartas_a_vista[total_de_cartas_a_vista++] = mao->cartas[TORNEIO_ASSENTO_JOGADOR][1];
+
+        for (size_t i = 0; i < mao->cartas_no_board && total_de_cartas_a_vista < 9; i++)
+            cartas_a_vista[total_de_cartas_a_vista++] = mao->board[i];
+
+        cartas_a_vista[total_de_cartas_a_vista++] = partida->cheats.carta_na_manga;
+    }
+
+    for (int valor = 2; valor <= 14 && livre.rank == 0; valor++) {
+        PokerCard candidata = { valor, POKER_CLUBS };
+
+        if (!carta_esta_a_vista(candidata))
+            livre = candidata;
+    }
+
+    for (int tipo = PEDIDO_BEBIDA; tipo < PEDIDO_TOTAL; tipo++) {
+        PedidoTrapaca pedido = montar_pedido((TipoDePedido)tipo, 0, livre);
+        PokerStatus primeiro_erro = POKER_OK;
+
+        trapaca_status[tipo] = partida_pode_trapacear(partida, pedido);
+        primeiro_erro = trapaca_status[tipo];
+
+        for (int carta = 0; carta < 2; carta++) {
+            pedido.carta_da_mao = carta;
+            trapaca_vale_para_a_carta[tipo][carta] = partida_pode_trapacear(partida, pedido) == POKER_OK;
+        }
+
+        /* Marcar e a manga valem se servir pelo menos uma das duas cartas. */
+        if (tipo == PEDIDO_MARCAR_CARTA || tipo == PEDIDO_MANGA) {
+            bool alguma = trapaca_vale_para_a_carta[tipo][0] || trapaca_vale_para_a_carta[tipo][1];
+
+            trapaca_status[tipo] = alguma ? POKER_OK : primeiro_erro;
+        }
+    }
+
+    if (!vez_do_jogador_vista)
+        fechar_trapacas();
+}
+
+/** Desenha o menu das trapaças por cima da mesa, na tela em que ele está. */
+static void desenhar_painel_das_trapacas(const Partida *partida)
+{
+    static const char *ROTULOS[] = {
+        "Batizar a bebida do adversário",
+        "Cúmplice",
+        "Marcar uma carta",
+        "Subornar o dealer: carta na mesa",
+        "Subornar o dealer: carta na sua mão",
+        "Subornar o dealer: ver as cartas dele",
+        "Ás na manga"
+    };
+    static const char *DESCRICOES[] = {
+        "Embriaga o adversário por 3 mãos: ele joga pior e desconfia menos.",
+        "O cúmplice conta que tipo de mão o adversário tem agora.",
+        "Marca uma carta sua para reconhecê-la na mão dele nas próximas mãos.",
+        "O dealer põe a carta escolhida como a primeira da próxima rua do board.",
+        "O dealer põe a carta escolhida na sua mão, na próxima mão.",
+        "O dealer mostra as duas cartas do adversário.",
+        "Troca uma carta da sua mão pela carta da manga."
+    };
+    char linha[TAMANHO_LINHA];
+    char carta[8];
+    int y = 308;
+
+    if (tela_de_trapacas == TRAPACAS_FECHADAS)
+        return;
+
+    DrawRectangle(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_FUNDO);
+    DrawRectangleLines(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_OURO);
+
+    if (tela_de_trapacas == TRAPACAS_MENU) {
+        DrawText("TRAPAÇAS  (1 a 7, W/S e ENTER ou cliques escolhem; ESC fecha)", 40, y, 22, COR_OURO);
+        botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
+        y += 40;
+
+        for (int i = 0; i < PEDIDO_TOTAL - 1; i++) {
+            TipoDePedido tipo = (TipoDePedido)(i + 1);
+            bool vale = trapaca_status[tipo] == POKER_OK;
+            const char *sufixo = "";
+            char manga[24] = "";
+
+            if (!vale)
+                sufixo = trapaca_status[tipo] == POKER_ERR_CHIPS ? "   (sem fichas)" : "   (não vale agora)";
+
+            if (tipo == PEDIDO_MANGA) {
+                texto_da_carta(partida->cheats.carta_na_manga, carta, sizeof carta);
+                snprintf(manga, sizeof manga, " (manga: %s)", carta);
+            }
+
+            snprintf(linha, sizeof linha, "%s[%d] %s%s     custo %lld     risco %d%%%s%s",
+                     i == destaque_das_trapacas ? "> " : "  ", i + 1, ROTULOS[i], manga,
+                     (long long)partida_custo_da_trapaca(partida, tipo),
+                     partida_chance_de_descoberta(partida, tipo), sufixo,
+                     i == destaque_das_trapacas ? " <" : "");
+            botao_de_texto(linha, 40, y, 22,
+                           !vale ? COR_TEXTO_SUAVE : (i == destaque_das_trapacas ? COR_OURO : COR_TEXTO),
+                           BOTAO_TRAPACA + (int)tipo);
+            y += 34;
+        }
+
+        y += 10;
+        DrawText(DESCRICOES[destaque_das_trapacas], 40, y, 22, COR_TEXTO);
+        y += 34;
+
+        if (aviso_das_trapacas != NULL)
+            DrawText(aviso_das_trapacas, 40, y, 22, COR_OURO);
+
+        return;
+    }
+
+    if (tela_de_trapacas == TRAPACAS_CARTA_DA_MAO) {
+        snprintf(linha, sizeof linha, "%s: QUAL CARTA DA SUA MÃO?  (1 ou 2; ESC volta)",
+                 trapaca_em_andamento == PEDIDO_MANGA ? "ÁS NA MANGA" : "MARCAR CARTA");
+        DrawText(linha, 40, y, 22, COR_OURO);
+        botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
+        y += 60;
+
+        for (int i = 0; i < 2; i++) {
+            bool vale = trapaca_vale_para_a_carta[trapaca_em_andamento][i];
+
+            texto_da_carta(partida->mao.cartas[TORNEIO_ASSENTO_JOGADOR][i], carta, sizeof carta);
+            snprintf(linha, sizeof linha, "[%d] %s%s", i + 1, carta, vale ? "" : "   (não vale)");
+            botao_de_texto(linha, 40, y, 36, vale ? COR_OURO : COR_TEXTO_SUAVE, BOTAO_CARTA_DA_MAO + i);
+            y += 60;
+        }
+
+        if (aviso_das_trapacas != NULL)
+            DrawText(aviso_das_trapacas, 40, y, 22, COR_OURO);
+
+        return;
+    }
+
+    snprintf(linha, sizeof linha, "SUBORNO: QUE CARTA VOCÊ PEDE AO DEALER?  (ESC volta)");
+    DrawText(linha, 40, y, 22, COR_OURO);
+    botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
+    y += 50;
+
+    snprintf(linha, sizeof linha, "%s de %s", texto_do_valor(valor_do_seletor), texto_do_naipe(naipe_do_seletor));
+    DrawText(linha, 40, y, 44, carta_esta_a_vista((PokerCard){ valor_do_seletor, (PokerSuit)naipe_do_seletor })
+                               ? COR_TEXTO_SUAVE : COR_OURO);
+    y += 70;
+
+    botao_de_texto("[<] valor", 40, y, 22, COR_OURO, BOTAO_VALOR_MENOS);
+    botao_de_texto("[>] valor", 240, y, 22, COR_OURO, BOTAO_VALOR_MAIS);
+    botao_de_texto("[^] naipe", 460, y, 22, COR_OURO, BOTAO_NAIPE_ACIMA);
+    botao_de_texto("[v] naipe", 680, y, 22, COR_OURO, BOTAO_NAIPE_ABAIXO);
+    y += 50;
+
+    botao_de_texto("[ENTER] pedir esta carta", 40, y, 22, COR_OURO, BOTAO_CONFIRMAR_CARTA);
+    y += 40;
+    DrawText("Setas: esquerda e direita mudam o valor, para cima e para baixo o naipe.", 40, y, 20, COR_TEXTO_SUAVE);
+    y += 34;
+
+    if (aviso_das_trapacas != NULL)
+        DrawText(aviso_das_trapacas, 40, y, 22, COR_OURO);
 }
 
 void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida)
@@ -792,6 +1206,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     int y = 24;
     int extra = 0;
 
+    registrar_disponibilidade(partida);
     comecar_desenho();
 
     snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s     MÃO %d     BLINDS %lld/%lld",
@@ -811,9 +1226,18 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
              partida->risco.balas_roleta);
     desenhar_linha(linha, &y, COR_TEXTO);
 
-    texto_das_cartas(mao->cartas[TORNEIO_ASSENTO_JOGADOR], 2, cartas, sizeof cartas);
-    snprintf(linha, sizeof linha, "SUAS CARTAS: %s", cartas);
-    desenhar_linha(linha, &y, COR_TEXTO);
+    {
+        char c0[8];
+        char c1[8];
+
+        texto_da_carta(mao->cartas[TORNEIO_ASSENTO_JOGADOR][0], c0, sizeof c0);
+        texto_da_carta(mao->cartas[TORNEIO_ASSENTO_JOGADOR][1], c1, sizeof c1);
+        snprintf(linha, sizeof linha, "SUAS CARTAS: %s%s %s%s", c0,
+                 is_card_marked(&partida->cheats, mao->cartas[TORNEIO_ASSENTO_JOGADOR][0]) ? " (marcada)" : "",
+                 c1,
+                 is_card_marked(&partida->cheats, mao->cartas[TORNEIO_ASSENTO_JOGADOR][1]) ? " (marcada)" : "");
+        desenhar_linha(linha, &y, COR_TEXTO);
+    }
 
     texto_das_cartas(mao->board, (int)mao->cartas_no_board, cartas, sizeof cartas);
     snprintf(linha, sizeof linha, "BOARD: %s", mao->cartas_no_board > 0 ? cartas : "-");
@@ -824,8 +1248,30 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     snprintf(linha, sizeof linha, "SUA MÃO ORDENADA: %s", quantidade > 0 ? cartas : "-");
     desenhar_linha(linha, &y, COR_TEXTO);
 
+    {
+        char manga[8];
+        int marcas = 0;
+
+        for (int i = 0; i < 5; i++)
+            marcas += partida->cheats.turnos_marcacao[i] > 0 ? 1 : 0;
+
+        texto_da_carta(partida->cheats.carta_na_manga, manga, sizeof manga);
+
+        if (partida->cheats.maos_embriagado > 0) {
+            snprintf(linha, sizeof linha, "TRAPAÇAS: manga %s     cartas marcadas: %d     adversário embriagado (%d mãos)",
+                     manga, marcas, partida->cheats.maos_embriagado);
+        } else {
+            snprintf(linha, sizeof linha, "TRAPAÇAS: manga %s     cartas marcadas: %d     adversário sóbrio", manga, marcas);
+        }
+
+        desenhar_linha(linha, &y, COR_TEXTO);
+    }
+
     if (terminou && mao->resultado.showdown) {
         texto_das_cartas(mao->cartas[TORNEIO_ASSENTO_ADVERSARIO], 2, cartas, sizeof cartas);
+    } else if (ha_cartas_reveladas) {
+        texto_das_cartas(cartas_reveladas, 2, cartas, sizeof cartas);
+        strncat(cartas, " (suborno)", sizeof cartas - strlen(cartas) - 1);
     } else {
         snprintf(cartas, sizeof cartas, "ocultas");
     }
@@ -836,7 +1282,10 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
-            desenhar_acoes_do_jogador(y, aposta_escolhida);
+            if (tela_de_trapacas != TRAPACAS_FECHADAS)
+                DrawText("Escolhendo uma trapaça...", 40, y, 22, COR_OURO);
+            else
+                desenhar_acoes_do_jogador(y, aposta_escolhida);
             break;
 
         case PARTIDA_VEZ_DO_ADVERSARIO:
@@ -884,7 +1333,9 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         desenhar_linha(registro_de_eventos[i], &y, COR_TEXTO_SUAVE);
     }
 
-    botao_de_texto("ESC ou clique aqui volta ao menu", 40, ALTURA_TELA - 40, 20, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
+    if (tela_de_trapacas == TRAPACAS_FECHADAS)
+        botao_de_texto("ESC ou clique aqui volta ao menu", 40, ALTURA_TELA - 40, 20, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
 
+    desenhar_painel_das_trapacas(partida);
     terminar_desenho();
 }
