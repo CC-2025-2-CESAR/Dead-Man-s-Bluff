@@ -1009,6 +1009,7 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             break;
 
         case EVENTO_BOARD_REVELADO:
+            animacoes_board_revelado(evento->board.quantidade);
             texto_das_cartas(evento->board.cartas, evento->board.quantidade, cartas, sizeof cartas);
             snprintf(linha, sizeof linha, "%s: %s", RUAS[evento->board.rua], cartas);
             guardar_linha(linha);
@@ -1303,17 +1304,32 @@ static void desenhar_painel_das_trapacas(const Partida *partida)
 static void desenhar_cartas_da_mesa(const Partida *partida)
 {
     const Mao *mao = &partida->mao;
+    int frentes = animacoes_board_frentes();
+    int versos = animacoes_board_versos();
+    float virada = animacoes_board_virada();
 
     if (mao->situacao == MAO_VAZIA)
         return;
 
     desenhar_texto_centralizado("MESA", 211, 19, COR_OURO);
 
-    for (size_t i = 0; i < mao->cartas_no_board; i++) {
+    for (int i = 0; i < frentes + versos && (size_t)i < mao->cartas_no_board; i++) {
         PokerCard carta = mao->board[i];
         Rectangle area = { 375.0f + (float)i * 108.0f, 249.0f, 94.0f, 132.0f };
+        bool mostrar_frente = i < frentes || virada >= 0.5f;
 
-        cartas_desenhar_frente(carta, is_card_marked(&partida->cheats, carta), area);
+        if (i >= frentes && virada >= 0.0f) {
+            float escala = virada < 0.5f ? 1.0f - 2.0f * virada : 2.0f * virada - 1.0f;
+            if (escala < 0.02f)
+                escala = 0.02f;
+            area.x += area.width * (1.0f - escala) / 2.0f;
+            area.width *= escala;
+        }
+
+        if (mostrar_frente)
+            cartas_desenhar_frente(carta, is_card_marked(&partida->cheats, carta), area);
+        else
+            cartas_desenhar_verso(false, area);
     }
 
     DrawText("VOCE", 314, 387, 19, COR_OURO);
@@ -1407,7 +1423,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         );
     }
 
-    if (animacoes_ativas()) {
+    if (animacoes_iniciais_ativas()) {
         animacoes_desenhar();
         terminar_desenho();
         return;
@@ -1477,6 +1493,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     }
 
     desenhar_cartas_da_mesa(partida);
+    animacoes_desenhar();
     y = 573;
 
     switch (partida->situacao) {
