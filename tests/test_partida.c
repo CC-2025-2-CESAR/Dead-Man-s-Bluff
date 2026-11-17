@@ -21,6 +21,10 @@ typedef struct {
     int potes_pagos;
     int confrontos_vencidos;
     int falencias;
+    int roletas;
+    int recuperacoes;
+    int mortes;
+    int falidos;
     int campeoes;
     int passos;
     PokerChips fichas_jogador;
@@ -115,9 +119,11 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
     unsigned sorteio = semente * 7919u + 13u;
     PokerChips total;
     bool terminou = false;
+    bool mao_ja_contada = false;
 
     CHECK(partida_iniciar(&partida, semente));
     partida.adversario_embriagado = embriagado;
+    partida.cheats.maos_embriagado = embriagado ? PARTIDA_USOS_MAXIMOS : 0;
     total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
 
     while (!terminou) {
@@ -140,7 +146,11 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
                 break;
 
             case PARTIDA_MAO_ENCERRADA:
-                resultado.maos++;
+                if (!mao_ja_contada) {
+                    resultado.maos++;
+                }
+
+                mao_ja_contada = false;
                 CHECK(partida.mao.situacao == MAO_REGISTRADA);
                 CHECK(partida.torneio.fichas_jogador + partida.torneio.fichas_adversario == total);
                 CHECK(partida_continuar(&partida));
@@ -159,10 +169,50 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
                 break;
             }
 
+            case PARTIDA_ROLETA:
+            {
+                int confronto = partida.torneio.confronto;
+                int recuperacoes = partida.torneio.recuperacoes;
+                int balas = partida.risco.balas_roleta;
+
+                resultado.maos++;
+                resultado.falencias++;
+                resultado.roletas++;
+                CHECK(partida.roleta_motivo == ROLETA_FALENCIA);
+                CHECK(partida.torneio.fichas_jogador == 0);
+                CHECK(partida.torneio.recuperacoes < PARTIDA_RECUPERACOES_MAXIMAS);
+                CHECK(balas >= 1 && balas <= 6);
+                CHECK(partida_puxar_gatilho(&partida));
+                CHECK(partida.roleta_motivo == ROLETA_NENHUMA);
+
+                if (partida.situacao == PARTIDA_JOGADOR_MORTO) {
+                    CHECK(partida.risco.balas_roleta == balas);
+                    break;
+                }
+
+                CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+                CHECK(balas < 6);
+                CHECK(partida.risco.balas_roleta == balas + 1);
+                CHECK(partida.torneio.recuperacoes == recuperacoes + 1);
+                CHECK(partida.torneio.fichas_jogador ==
+                      torneio_fichas_iniciais_adversario(confronto) / 2);
+                total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
+                resultado.recuperacoes++;
+                mao_ja_contada = true;
+                break;
+            }
+
+            case PARTIDA_JOGADOR_MORTO:
+                resultado.mortes++;
+                terminou = true;
+                break;
+
             case PARTIDA_JOGADOR_FALIDO:
                 resultado.maos++;
                 resultado.falencias++;
+                resultado.falidos++;
                 CHECK(partida.torneio.fichas_jogador == 0);
+                CHECK(partida.torneio.recuperacoes == PARTIDA_RECUPERACOES_MAXIMAS);
                 terminou = true;
                 break;
 
@@ -184,6 +234,7 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
     resultado.confronto = partida.torneio.confronto;
 
     CHECK(!partida_continuar(&partida));
+    CHECK(!partida_puxar_gatilho(&partida));
     CHECK(partida_agir_jogador(&partida, PAGAR) == POKER_ERR_STATE);
     CHECK(partida_agir_adversario(&partida, NULL) == POKER_ERR_STATE);
     partida_encerrar(&partida);
@@ -304,7 +355,7 @@ static void test_stack_curto_resolve_a_mao_ao_iniciar(void)
     CHECK(partida.mao.situacao == MAO_REGISTRADA);
     CHECK(partida.mao.cartas_no_board == MAO_CARTAS_NO_BOARD);
     CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA ||
-          partida.situacao == PARTIDA_JOGADOR_FALIDO ||
+          partida.situacao == PARTIDA_ROLETA ||
           partida.situacao == PARTIDA_CONFRONTO_VENCIDO);
     CHECK(partida.torneio.fichas_jogador + partida.torneio.fichas_adversario == 2000);
 
@@ -419,7 +470,7 @@ static void test_adversario_all_in_impede_aumentar(void)
     CHECK(partida_comando_jogador(&partida, COMANDO_PASSAR_OU_PAGAR, 0) == POKER_OK);
     CHECK(partida.mao.mesa.phase == POKER_SETTLED);
     CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA ||
-          partida.situacao == PARTIDA_JOGADOR_FALIDO ||
+          partida.situacao == PARTIDA_ROLETA ||
           partida.situacao == PARTIDA_CONFRONTO_VENCIDO);
     partida_encerrar(&partida);
 }
@@ -436,10 +487,14 @@ static void test_partidas_inteiras(void)
     };
 
     int campeoes_em_todas = 0;
+    int roletas_em_todas = 0;
+    int recuperacoes_em_todas = 0;
+    int mortes_em_todas = 0;
+    int falidos_em_todas = 0;
 
     for (size_t p = 0; p < sizeof politicas / sizeof politicas[0]; p++) {
         int confrontos_vencidos = 0;
-        int falencias = 0;
+        int derrotas = 0;
         int campeoes = 0;
 
         for (int semente = 1; semente <= SEMENTES; semente++) {
@@ -447,20 +502,31 @@ static void test_partidas_inteiras(void)
 
             CHECK(resultado.maos > 0);
             CHECK(resultado.potes_pagos == resultado.maos);
-            CHECK(resultado.falencias + resultado.campeoes == 1);
+            CHECK(resultado.mortes + resultado.falidos + resultado.campeoes == 1);
+            CHECK(resultado.falencias == resultado.roletas + resultado.falidos);
+            CHECK(resultado.recuperacoes <= PARTIDA_RECUPERACOES_MAXIMAS);
+            CHECK(resultado.roletas == resultado.recuperacoes + resultado.mortes);
             CHECK(resultado.confrontos_vencidos <= TORNEIO_CONFRONTOS - 1);
             confrontos_vencidos += resultado.confrontos_vencidos;
-            falencias += resultado.falencias;
+            derrotas += resultado.mortes + resultado.falidos;
             campeoes += resultado.campeoes;
+            roletas_em_todas += resultado.roletas;
+            recuperacoes_em_todas += resultado.recuperacoes;
+            mortes_em_todas += resultado.mortes;
+            falidos_em_todas += resultado.falidos;
         }
 
-        CHECK(falencias + campeoes == SEMENTES);
+        CHECK(derrotas + campeoes == SEMENTES);
         CHECK(confrontos_vencidos > 0);
-        CHECK(falencias > 0);
+        CHECK(derrotas > 0);
         campeoes_em_todas += campeoes;
     }
 
     CHECK(campeoes_em_todas > 0);
+    CHECK(roletas_em_todas > 0);
+    CHECK(recuperacoes_em_todas > 0);
+    CHECK(mortes_em_todas > 0);
+    CHECK(falidos_em_todas > 0);
 }
 
 static void test_mesma_semente_reproduz_a_partida(void)
@@ -475,6 +541,9 @@ static void test_mesma_semente_reproduz_a_partida(void)
         CHECK(a.fichas_jogador == b.fichas_jogador);
         CHECK(a.fichas_adversario == b.fichas_adversario);
         CHECK(a.confrontos_vencidos == b.confrontos_vencidos);
+        CHECK(a.roletas == b.roletas);
+        CHECK(a.recuperacoes == b.recuperacoes);
+        CHECK(a.mortes == b.mortes);
     }
 }
 
@@ -503,8 +572,8 @@ static void test_embriaguez_muda_o_comportamento_da_ia(void)
         Resultado sobrio = jogar_ate_o_fim((unsigned)semente, politica_passiva, false);
         Resultado bebado = jogar_ate_o_fim((unsigned)semente, politica_passiva, true);
 
-        CHECK(sobrio.falencias + sobrio.campeoes == 1);
-        CHECK(bebado.falencias + bebado.campeoes == 1);
+        CHECK(sobrio.mortes + sobrio.falidos + sobrio.campeoes == 1);
+        CHECK(bebado.mortes + bebado.falidos + bebado.campeoes == 1);
 
         if (sobrio.passos != bebado.passos || sobrio.maos != bebado.maos ||
             sobrio.fichas_jogador != bebado.fichas_jogador) {
@@ -513,6 +582,353 @@ static void test_embriaguez_muda_o_comportamento_da_ia(void)
     }
 
     CHECK(diferentes > 0);
+}
+
+/**
+ * Joga a partida com all-in a cada vez do jogador, até que ela chegue a uma
+ * das situações que o chamador procura. Devolve a situação em que parou, que
+ * pode ser outra (por exemplo, um confronto vencido quando se procurava a
+ * falência).
+ */
+static PartidaSituacao jogar_all_in_ate(Partida *partida, PartidaSituacao procurada,
+                                        PartidaSituacao alternativa)
+{
+    int passos = 0;
+
+    while (++passos < LIMITE_DE_PASSOS) {
+        switch (partida->situacao) {
+            case PARTIDA_VEZ_DO_JOGADOR:
+                CHECK(partida_agir_jogador(partida, ALL_IN) == POKER_OK);
+                break;
+
+            case PARTIDA_VEZ_DO_ADVERSARIO:
+                CHECK(partida_agir_adversario(partida, NULL) == POKER_OK);
+                break;
+
+            case PARTIDA_MAO_ENCERRADA:
+                CHECK(partida_continuar(partida));
+                break;
+
+            default:
+                return partida->situacao;
+        }
+
+        if (partida->situacao == procurada || partida->situacao == alternativa) {
+            return partida->situacao;
+        }
+    }
+
+    CHECK(false);
+    return PARTIDA_VAZIA;
+}
+
+/** Leva uma partida nova até a roleta de falência; false se a semente não faliu o jogador. */
+static bool levar_a_roleta(Partida *partida, unsigned semente, int balas, int recuperacoes)
+{
+    CHECK(partida_iniciar(partida, semente));
+    partida->risco.balas_roleta = balas;
+    partida->risco_da_mao.balas_roleta = balas;
+    partida->torneio.recuperacoes = recuperacoes;
+    partida->torneio_da_mao.recuperacoes = recuperacoes;
+
+    return jogar_all_in_ate(partida, PARTIDA_ROLETA, PARTIDA_JOGADOR_FALIDO) == PARTIDA_ROLETA;
+}
+
+static bool achar_evento_de_roleta(Partida *partida, EventoJogo *achado)
+{
+    EventoJogo evento;
+    bool achou = false;
+
+    while (fila_eventos_retirar(&partida->eventos, &evento)) {
+        if (evento.tipo == EVENTO_ROLETA) {
+            *achado = evento;
+            achou = true;
+        }
+    }
+
+    return achou;
+}
+
+static void test_gatilho_so_vale_na_roleta(void)
+{
+    Partida partida = {0};
+    Partida vazia = {0};
+
+    CHECK(!partida_puxar_gatilho(NULL));
+    CHECK(!partida_puxar_gatilho(&vazia));
+
+    CHECK(partida_iniciar(&partida, 3));
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
+    fila_eventos_iniciar(&partida.eventos);
+    CHECK(!partida_puxar_gatilho(&partida));
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
+    CHECK(partida.quantidade_no_registro == 0);
+    CHECK(fila_eventos_tamanho(&partida.eventos) == 0);
+    partida_encerrar(&partida);
+}
+
+static void test_o_risco_comeca_com_uma_bala(void)
+{
+    Partida partida = {0};
+
+    CHECK(partida_iniciar(&partida, 9));
+    CHECK(partida.risco.balas_roleta == 1);
+
+    for (int i = 0; i < PROB_TRAPACA_TOTAL; i++) {
+        CHECK(partida.risco.usos_trapaca[i] == 0);
+    }
+
+    CHECK(partida.roleta_motivo == ROLETA_NENHUMA);
+    CHECK(partida.risco_da_mao.balas_roleta == 1);
+    CHECK(partida.estado_do_risco_da_mao == partida.estado_do_risco);
+    partida_encerrar(&partida);
+}
+
+static void test_falencia_leva_a_roleta_e_seis_balas_matam(void)
+{
+    bool achou = false;
+
+    for (unsigned semente = 1; semente <= 60 && !achou; semente++) {
+        Partida partida = {0};
+        EventoJogo evento;
+
+        if (!levar_a_roleta(&partida, semente, 6, 0)) {
+            partida_encerrar(&partida);
+            continue;
+        }
+
+        achou = true;
+        CHECK(partida.situacao == PARTIDA_ROLETA);
+        CHECK(partida.roleta_motivo == ROLETA_FALENCIA);
+        CHECK(partida.torneio.situacao == TORNEIO_JOGADOR_FALIDO);
+        CHECK(partida.quantidade_no_registro > 0);
+        CHECK(!partida_continuar(&partida));
+        CHECK(partida_agir_jogador(&partida, PAGAR) == POKER_ERR_STATE);
+        CHECK(partida_agir_adversario(&partida, NULL) == POKER_ERR_STATE);
+
+        CHECK(partida_puxar_gatilho(&partida));
+        CHECK(partida.situacao == PARTIDA_JOGADOR_MORTO);
+        CHECK(partida.risco.balas_roleta == 6);
+        CHECK(achar_evento_de_roleta(&partida, &evento));
+        CHECK(evento.roleta.por_falencia && evento.roleta.morreu);
+        CHECK(evento.roleta.balas_antes == 6 && evento.roleta.balas_depois == 6);
+        CHECK(!partida_puxar_gatilho(&partida));
+        CHECK(!partida_continuar(&partida));
+        partida_encerrar(&partida);
+    }
+
+    CHECK(achou);
+}
+
+static void test_sobreviver_a_roleta_devolve_o_jogador_ao_confronto(void)
+{
+    bool achou = false;
+
+    for (unsigned semente = 1; semente <= 60 && !achou; semente++) {
+        for (uint64_t estado = 1; estado <= 40 && !achou; estado++) {
+            Partida partida = {0};
+            EventoJogo evento;
+
+            if (!levar_a_roleta(&partida, semente, 1, 0)) {
+                partida_encerrar(&partida);
+                break;
+            }
+
+            partida.risco.usos_trapaca[PROB_TRAPACA_CUMPLICE] = 5;
+            partida.estado_do_risco = estado;
+            fila_eventos_iniciar(&partida.eventos);
+            CHECK(partida_puxar_gatilho(&partida));
+
+            if (partida.situacao == PARTIDA_JOGADOR_MORTO) {
+                CHECK(partida.risco.balas_roleta == 1);
+                CHECK(partida.risco.usos_trapaca[PROB_TRAPACA_CUMPLICE] == 5);
+                partida_encerrar(&partida);
+                continue;
+            }
+
+            achou = true;
+            CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+            CHECK(partida.risco.balas_roleta == 2);
+            CHECK(partida.risco.usos_trapaca[PROB_TRAPACA_CUMPLICE] == 0);
+            CHECK(partida.torneio.situacao == TORNEIO_EM_ANDAMENTO);
+            CHECK(partida.torneio.recuperacoes == 1);
+            CHECK(partida.torneio.fichas_jogador == torneio_fichas_iniciais_adversario(0) / 2);
+            CHECK(achar_evento_de_roleta(&partida, &evento));
+            CHECK(evento.roleta.por_falencia && !evento.roleta.morreu);
+            CHECK(evento.roleta.balas_antes == 1 && evento.roleta.balas_depois == 2);
+
+            CHECK(partida_continuar(&partida));
+            CHECK(partida.mao.mesa.player[TORNEIO_ASSENTO_JOGADOR].chips +
+                  partida.mao.mesa.player[TORNEIO_ASSENTO_JOGADOR].committed ==
+                  torneio_fichas_iniciais_adversario(0) / 2);
+            CHECK(partida.risco_da_mao.balas_roleta == 2);
+            partida_encerrar(&partida);
+        }
+    }
+
+    CHECK(achou);
+}
+
+static void test_depois_do_limite_de_recuperacoes_a_falencia_acaba_a_partida(void)
+{
+    bool achou = false;
+
+    for (unsigned semente = 1; semente <= 60 && !achou; semente++) {
+        Partida partida = {0};
+
+        CHECK(partida_iniciar(&partida, semente));
+        partida.torneio.recuperacoes = PARTIDA_RECUPERACOES_MAXIMAS;
+
+        if (jogar_all_in_ate(&partida, PARTIDA_JOGADOR_FALIDO, PARTIDA_CONFRONTO_VENCIDO) ==
+            PARTIDA_JOGADOR_FALIDO) {
+            achou = true;
+            CHECK(partida.roleta_motivo == ROLETA_NENHUMA);
+            CHECK(!partida_puxar_gatilho(&partida));
+            CHECK(!partida_continuar(&partida));
+        }
+
+        partida_encerrar(&partida);
+    }
+
+    CHECK(achou);
+}
+
+static void test_o_resultado_da_roleta_so_depende_do_gerador_da_partida(void)
+{
+    int mortes = 0;
+    int sobrevivencias = 0;
+    unsigned semente = 0;
+
+    /* O rand da biblioteca muda de um sistema para outro: procura uma semente que leve à roleta. */
+    for (unsigned candidata = 1; candidata <= 300 && semente == 0; candidata++) {
+        Partida teste = {0};
+
+        if (levar_a_roleta(&teste, candidata, 3, 0)) {
+            semente = candidata;
+        }
+
+        partida_encerrar(&teste);
+    }
+
+    CHECK(semente != 0);
+
+    for (uint64_t estado = 1; estado <= 60; estado++) {
+        Partida a = {0};
+        Partida b = {0};
+
+        CHECK(levar_a_roleta(&a, semente, 3, 0));
+        CHECK(levar_a_roleta(&b, semente, 3, 0));
+        a.estado_do_risco = estado;
+        b.estado_do_risco = estado;
+
+        srand(1);
+        CHECK(partida_puxar_gatilho(&a));
+        srand(123456);
+        CHECK(partida_puxar_gatilho(&b));
+
+        CHECK(a.situacao == b.situacao);
+        CHECK(a.risco.balas_roleta == b.risco.balas_roleta);
+        CHECK(a.estado_do_risco == b.estado_do_risco);
+        CHECK(a.estado_do_risco != estado);
+
+        if (a.situacao == PARTIDA_JOGADOR_MORTO) {
+            mortes++;
+        } else {
+            sobrevivencias++;
+        }
+
+        partida_encerrar(&a);
+        partida_encerrar(&b);
+    }
+
+    CHECK(mortes > 0 && sobrevivencias > 0);
+}
+
+static void test_vencer_um_confronto_tira_uma_bala_e_recomeca_a_suspeita(void)
+{
+    bool achou = false;
+
+    for (unsigned semente = 1; semente <= 80 && !achou; semente++) {
+        Partida partida = {0};
+
+        CHECK(partida_iniciar(&partida, semente));
+        partida.risco.balas_roleta = 4;
+        partida.risco.usos_trapaca[PROB_TRAPACA_SPIKE_DRINK] = 3;
+        partida.risco.usos_trapaca[PROB_TRAPACA_CARTA_MANGA] = 2;
+
+        if (jogar_all_in_ate(&partida, PARTIDA_CONFRONTO_VENCIDO, PARTIDA_ROLETA) ==
+            PARTIDA_CONFRONTO_VENCIDO) {
+            achou = true;
+            CHECK(partida.risco.balas_roleta == 4);
+            CHECK(partida.risco.usos_trapaca[PROB_TRAPACA_SPIKE_DRINK] == 3);
+            CHECK(partida_continuar(&partida));
+            CHECK(partida.torneio.confronto == 1);
+            CHECK(partida.risco.balas_roleta == 3);
+            CHECK(partida.risco.usos_trapaca[PROB_TRAPACA_SPIKE_DRINK] == 0);
+            CHECK(partida.risco.usos_trapaca[PROB_TRAPACA_CARTA_MANGA] == 0);
+            CHECK(partida.risco_da_mao.balas_roleta == 3);
+        }
+
+        partida_encerrar(&partida);
+    }
+
+    CHECK(achou);
+}
+
+static void test_a_ultima_bala_nao_sai_do_tambor(void)
+{
+    bool achou = false;
+
+    for (unsigned semente = 1; semente <= 80 && !achou; semente++) {
+        Partida partida = {0};
+
+        CHECK(partida_iniciar(&partida, semente));
+        CHECK(partida.risco.balas_roleta == 1);
+
+        if (jogar_all_in_ate(&partida, PARTIDA_CONFRONTO_VENCIDO, PARTIDA_ROLETA) ==
+            PARTIDA_CONFRONTO_VENCIDO) {
+            achou = true;
+            CHECK(partida_continuar(&partida));
+            CHECK(partida.risco.balas_roleta == 1);
+        }
+
+        partida_encerrar(&partida);
+    }
+
+    CHECK(achou);
+}
+
+static void test_o_registro_guarda_acoes_e_gatilho_na_ordem(void)
+{
+    bool achou = false;
+
+    for (unsigned semente = 1; semente <= 60 && !achou; semente++) {
+        Partida partida = {0};
+        size_t acoes;
+
+        if (!levar_a_roleta(&partida, semente, 1, 0)) {
+            partida_encerrar(&partida);
+            continue;
+        }
+
+        achou = true;
+        acoes = partida.quantidade_no_registro;
+        CHECK(acoes > 0 && !partida.registro_perdido);
+
+        for (size_t i = 0; i < acoes; i++) {
+            CHECK(partida.registro[i].tipo == REGISTRO_ACAO);
+            CHECK(i >= partida.mao.quantidade_de_acoes ||
+                  partida.registro[i].acao.type == partida.mao.acoes[i].type);
+        }
+
+        CHECK(acoes == partida.mao.quantidade_de_acoes);
+        CHECK(partida_puxar_gatilho(&partida));
+        CHECK(partida.quantidade_no_registro == acoes + 1);
+        CHECK(partida.registro[acoes].tipo == REGISTRO_GATILHO);
+        partida_encerrar(&partida);
+    }
+
+    CHECK(achou);
 }
 
 static void test_reiniciar_partida_libera_a_anterior(void)
@@ -527,7 +943,7 @@ static void test_reiniciar_partida_libera_a_anterior(void)
     CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
     CHECK(partida.torneio.maos_jogadas == 0);
     CHECK(fila_eventos_tamanho(&partida.eventos) == 3);
-    CHECK(partida.mao.baralho.count == 48);
+    CHECK(partida.mao.baralho.count == 47);
 
     partida_encerrar(&partida);
     CHECK(partida.mao.baralho.count == 0 && partida.mao.baralho.head == NULL);
@@ -548,6 +964,15 @@ int main(void)
     test_sementes_diferentes_dao_partidas_diferentes();
     test_embriaguez_muda_o_comportamento_da_ia();
     test_reiniciar_partida_libera_a_anterior();
-    puts("OK: partida com torneio, mao, fila de eventos e IA (turnos, confrontos, perfis e partidas inteiras).");
+    test_gatilho_so_vale_na_roleta();
+    test_o_risco_comeca_com_uma_bala();
+    test_falencia_leva_a_roleta_e_seis_balas_matam();
+    test_sobreviver_a_roleta_devolve_o_jogador_ao_confronto();
+    test_depois_do_limite_de_recuperacoes_a_falencia_acaba_a_partida();
+    test_o_resultado_da_roleta_so_depende_do_gerador_da_partida();
+    test_vencer_um_confronto_tira_uma_bala_e_recomeca_a_suspeita();
+    test_a_ultima_bala_nao_sai_do_tambor();
+    test_o_registro_guarda_acoes_e_gatilho_na_ordem();
+    puts("OK: partida com torneio, mao, fila de eventos, IA e roleta (turnos, confrontos, perfis, falencia e partidas inteiras).");
     return EXIT_SUCCESS;
 }

@@ -43,4 +43,23 @@ bool deck_deal_board(Deck *deck,
                      PokerCard board[5],
                      size_t *board_count);
 
+/* Indica se a carta (valida) ainda esta no baralho. */
+bool deck_contains(const Deck *deck, PokerCard card);
+
+/*
+ * Tira uma carta especifica do baralho, sem mexer na ordem das demais.
+ * Retorna false, sem alterar nada, se a carta for invalida ou nao estiver
+ * no baralho. Usado para guardar a carta da manga fora do baralho.
+ */
+bool deck_remove_card(Deck *deck, PokerCard card);
+
+/*
+ * Troca uma carta do baralho por outra: `take` sai e `put` ocupa o lugar dela,
+ * na mesma posicao, para o baralho continuar sem cartas repetidas. Quem chama
+ * fica com `take` e entrega `put`. Retorna false, sem alterar nada, se alguma
+ * carta for invalida, se `take` nao estiver no baralho ou se `put` ja estiver
+ * (e for diferente de `take`).
+ */
+bool deck_exchange(Deck *deck, PokerCard take, PokerCard put);
+
 #endif

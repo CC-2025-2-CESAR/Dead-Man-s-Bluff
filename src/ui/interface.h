@@ -3,18 +3,51 @@
 
 #include <stdbool.h>
 
+#include "core/configuracoes.h"
 #include "core/eventos.h"
 #include "core/partida.h"
 
+/**
+ * Tamanho do desenho, em pixels, que não muda com a resolução da janela. Todas
+ * as telas desenham como se a janela tivesse este tamanho, e a interface
+ * escala o resultado para a janela real, com faixas nas bordas se a
+ * proporção for diferente. Quem desenha telas novas usa estas coordenadas.
+ */
 #define LARGURA_TELA 1280
 #define ALTURA_TELA 720
 
 /** Opções disponíveis na tela inicial. */
 typedef enum {
-    MENU_JOGAR = 0,
+    MENU_CONTINUAR = 0,
+    MENU_NOVO_JOGO,
+    MENU_CONFIGURACOES,
     MENU_SAIR,
     MENU_TOTAL
 } OpcaoMenu;
+
+/** Resposta do jogador a uma pergunta de sim ou não. */
+typedef enum {
+    RESPOSTA_NENHUMA = 0,
+    RESPOSTA_SIM,
+    RESPOSTA_NAO
+} RespostaConfirmacao;
+
+/**
+ * O que o jogador fez na tela de configurações em um quadro.
+ *
+ * movimento: -1 para subir na lista, 1 para descer, 0 se não mexeu.
+ * confirmar: pediu para usar a opção destacada. Um clique em uma opção a
+ * escolhe e confirma no mesmo quadro.
+ * voltar: pediu para voltar ao menu, pelo teclado ou clicando em Voltar.
+ * apontada: posição da opção sob o mouse, se ele se moveu ou clicou neste
+ * quadro; -1 nos demais casos. Quem recebe passa a destacar essa opção.
+ */
+typedef struct {
+    int movimento;
+    bool confirmar;
+    bool voltar;
+    int apontada;
+} EntradaConfiguracoes;
 
 /**
  * O que o jogador fez na mesa em um quadro. A interface só traduz teclas ou
@@ -25,12 +58,18 @@ typedef enum {
  * passos de um big blind; 0 se não mexeu.
  * continuar: pediu para seguir depois do fim de uma mão ou da partida.
  * voltar: pediu para sair da mesa e voltar ao menu.
+ * pedido: trapaça que o jogador pediu, completa (carta da mão ou carta
+ * escolhida, se o tipo pede), ou PEDIDO_NENHUM. A interface guia o jogador
+ * pelo menu e pelos seletores de carta, e só devolve o pedido quando ele
+ * confirma; quem decide se vale é o core (partida_trapacear). Enquanto o menu
+ * das trapaças está aberto, os outros campos ficam sem pedido.
  */
 typedef struct {
     ComandoJogador comando;
     int ajuste_aposta;
     bool continuar;
     bool voltar;
+    PedidoTrapaca pedido;
 } EntradaMesa;
 
 /**
@@ -50,24 +89,86 @@ double interface_tempo_do_quadro(void);
 
 /**
  * Lê o teclado na tela inicial: W/S ou as setas movem a seleção e
- * ENTER ou ESPAÇO confirmam.
+ * ENTER ou ESPAÇO confirmam. Enquanto não há jogo salvo, a opção Continuar
+ * não pode ser escolhida e a seleção pula por ela.
  *
  * @param selecionada opção destacada, atualizada quando o jogador navega.
+ * @param continuar_disponivel true se há um jogo salvo para continuar.
  * @return true no quadro em que o jogador confirma a opção destacada.
  */
-bool interface_menu_atualizar(OpcaoMenu *selecionada);
+bool interface_menu_atualizar(OpcaoMenu *selecionada, bool continuar_disponivel);
 
 /**
  * Desenha a tela inicial com o título do jogo e o menu.
  *
  * @param selecionada opção que aparece destacada.
+ * @param continuar_disponivel true se há um jogo salvo; senão a opção
+ * Continuar aparece apagada.
+ * @param aviso frase curta que aparece abaixo do menu, ou NULL.
  */
-void interface_menu_desenhar(OpcaoMenu selecionada);
+void interface_menu_desenhar(OpcaoMenu selecionada, bool continuar_disponivel, const char *aviso);
+
+/**
+ * Lê a resposta do jogador a uma pergunta de sim ou não: ENTER ou ESPAÇO
+ * respondem sim, ESC responde não.
+ *
+ * @return a resposta dada neste quadro, ou RESPOSTA_NENHUMA.
+ */
+RespostaConfirmacao interface_confirmacao_ler_resposta(void);
+
+/**
+ * Desenha uma pergunta de sim ou não, com uma frase de explicação.
+ *
+ * @param pergunta a pergunta, em destaque.
+ * @param detalhe o que acontece se o jogador responder sim.
+ */
+void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe);
+
+/**
+ * Lê o teclado na tela de configurações: W/S ou as setas movem a seleção,
+ * ENTER ou ESPAÇO confirmam e ESC volta ao menu.
+ *
+ * @return os comandos do quadro.
+ */
+EntradaConfiguracoes interface_configuracoes_ler_entrada(void);
+
+/**
+ * Desenha a tela de configurações, com a lista de resoluções.
+ *
+ * @param configuracoes configurações em uso; a resolução atual aparece marcada.
+ * @param selecionada posição destacada na lista de resoluções.
+ */
+void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int selecionada);
+
+/**
+ * Indica se uma resolução cabe no monitor onde a janela está. A janela em
+ * tamanho fixo precisa caber com a barra de título; a tela cheia sempre
+ * cabe.
+ *
+ * @param resolucao resolução a conferir.
+ * @return true se pode ser usada neste monitor.
+ */
+bool interface_resolucao_cabe(Resolucao resolucao);
+
+/**
+ * Passa a janela para a resolução pedida: muda o tamanho e a centraliza no
+ * monitor, ou liga a tela cheia sem bordas. O desenho se ajusta sozinho ao
+ * novo tamanho.
+ *
+ * @param resolucao resolução a usar.
+ * @return true se a janela mudou ou já estava assim; false, sem alterar nada,
+ * se a resolução não cabe no monitor.
+ */
+bool interface_aplicar_resolucao(Resolucao resolucao);
 
 /**
  * Lê o que o jogador fez na mesa neste quadro. Hoje: F desiste, C passa ou
  * paga, R aposta ou aumenta, A vai all-in, as setas para cima e para baixo
- * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu.
+ * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre o
+ * menu das trapaças (só na vez do jogador): os números de 1 a 7, as setas e
+ * ENTER escolhem, a carta da mão ou a carta pedida ao dealer vêm de um
+ * seletor (setas para o valor e o naipe), e ESC volta um passo ou fecha. Tudo
+ * isso também se faz com cliques.
  *
  * @return os comandos do quadro.
  */
