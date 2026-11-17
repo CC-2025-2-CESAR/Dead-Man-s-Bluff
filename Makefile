@@ -3,8 +3,8 @@ CPPFLAGS += -Isrc/poker
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -Werror
 POKER_SRC = src/poker/poker.c src/poker/apostas.c
 POKER_HEADERS = src/poker/poker.h src/poker/apostas.h
-JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c $(CONFIGURACOES_SRC) $(SALVAMENTO_SRC) $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC)
-JOGO_HEADERS = src/core/jogo.h src/ui/interface.h $(CONFIGURACOES_HEADERS) $(SALVAMENTO_HEADERS) $(PARTIDA_HEADERS) $(MAO_IA_HEADERS) $(MAO_HEADERS) $(AI_HEADERS) $(TORNEIO_HEADERS) $(DECK_HEADERS) $(POKER_HEADERS)
+JOGO_SRC = src/main.c src/core/jogo.c src/ui/interface.c src/ui/animacoes.c $(CONFIGURACOES_SRC) $(SALVAMENTO_SRC) $(PARTIDA_SRC) $(MAO_IA_SRC) $(MAO_SRC) $(AI_SRC) $(TORNEIO_SRC) $(DECK_SRC) $(POKER_SRC)
+JOGO_HEADERS = src/core/jogo.h src/ui/interface.h src/ui/animacoes.h $(CONFIGURACOES_HEADERS) $(SALVAMENTO_HEADERS) $(PARTIDA_HEADERS) $(MAO_IA_HEADERS) $(MAO_HEADERS) $(AI_HEADERS) $(TORNEIO_HEADERS) $(DECK_HEADERS) $(POKER_HEADERS)
 TORNEIO_SRC = src/core/torneio.c
 TORNEIO_HEADERS = src/core/torneio.h
 CONFIGURACOES_SRC = src/core/configuracoes.c

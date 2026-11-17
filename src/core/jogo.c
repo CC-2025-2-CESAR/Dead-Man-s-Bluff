@@ -3,6 +3,7 @@
 #include "core/partida.h"
 #include "core/salvamento.h"
 #include "ui/interface.h"
+#include "ui/animacoes.h"
 
 #include <stdbool.h>
 #include <time.h>
@@ -84,6 +85,8 @@ static bool continuar_partida(Mesa *mesa)
     mesa->aposta = 0;
     mesa->ativa = salvamento_ler(SALVAMENTO_ARQUIVO, &salva) &&
                   partida_restaurar(&mesa->partida, &salva);
+    if (mesa->ativa)
+        animacoes_ignorar_proximo_inicio();
     return mesa->ativa;
 }
 
@@ -291,6 +294,7 @@ static EstadoJogo executar_quadro_mesa(void)
     if (!mesa.ativa && !iniciar_partida(&mesa))
         return ESTADO_MENU;
 
+    repassar_eventos(&mesa.partida);
     entrada = interface_mesa_ler_entrada();
 
     if (entrada.voltar) {
@@ -298,6 +302,12 @@ static EstadoJogo executar_quadro_mesa(void)
         encerrar_partida(&mesa);
         atualizar_menu();
         return ESTADO_MENU;
+    }
+
+    if (animacoes_embaralhando()) {
+        animacoes_atualizar(interface_tempo_do_quadro());
+        interface_mesa_desenhar(&mesa.partida, mesa.aposta);
+        return ESTADO_MESA;
     }
 
     if (atualizar_partida(&mesa, &entrada, interface_tempo_do_quadro()))

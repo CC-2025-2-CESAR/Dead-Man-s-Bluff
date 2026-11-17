@@ -1,4 +1,5 @@
 #include "ui/interface.h"
+#include "ui/animacoes.h"
 #include "raylib.h"
 
 #include <stdio.h>
@@ -13,6 +14,8 @@ static int eventos_registrados;
 static Texture2D textura_menu = { 0 };
 static Texture2D textura_vitoria = { 0 };
 static Texture2D textura_derrota = { 0 };
+
+static Texture2D textura_mesa = { 0 };
 
 static const Color COR_FUNDO = { 12, 46, 31, 255 };
 static const Color COR_OURO = { 212, 175, 55, 255 };
@@ -195,6 +198,8 @@ void interface_iniciar(void)
     textura_menu = LoadTexture("assets/images/menu.png");
     textura_vitoria = LoadTexture("assets/images/vitoria.png");
     textura_derrota = LoadTexture("assets/images/derrota.png");
+    textura_mesa = LoadTexture("assets/images/mesa.png");
+    animacoes_iniciar();
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
 }
@@ -209,6 +214,11 @@ void interface_encerrar(void)
 
     if (textura_derrota.id != 0)
         UnloadTexture(textura_derrota);
+
+    if (textura_mesa.id != 0)
+        UnloadTexture(textura_mesa);
+
+    animacoes_encerrar();
 
     CloseWindow();
 }
@@ -806,6 +816,7 @@ void interface_mesa_limpar_eventos(void)
     eventos_registrados = 0;
     ha_cartas_reveladas = false;
     fechar_trapacas();
+    animacoes_cancelar();
 }
 
 static const char *nome_da_trapaca(TipoDePedido pedido)
@@ -928,6 +939,7 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
     switch (evento->tipo) {
         case EVENTO_MAO_INICIADA:
             ha_cartas_reveladas = false;
+            animacoes_comecar_embaralhamento();
             snprintf(linha, sizeof linha, "Nova mão: dealer %s, blinds %lld/%lld",
                      nome_do_assento(evento->mao_iniciada.dealer),
                      (long long)evento->mao_iniciada.pequeno_blind,
@@ -1260,6 +1272,24 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         terminar_desenho();
         return;
     }
+
+    if (textura_mesa.id != 0) {
+        DrawTexturePro(
+            textura_mesa,
+            (Rectangle){ 0, 0, (float)textura_mesa.width, (float)textura_mesa.height },
+            (Rectangle){ 0, 0, (float)LARGURA_TELA, (float)ALTURA_TELA },
+            (Vector2){ 0, 0 },
+            0.0f,
+            WHITE
+        );
+    }
+
+    if (animacoes_embaralhando()) {
+        animacoes_desenhar();
+        terminar_desenho();
+        return;
+    }
+
     snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s     MÃO %d     BLINDS %lld/%lld",
              partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
              partida_nome_do_adversario(partida->torneio.confronto),
