@@ -1,5 +1,6 @@
 #include "ui/interface.h"
 #include "ui/animacoes.h"
+#include "ui/cartas.h"
 #include "raylib.h"
 
 #include <stdio.h>
@@ -199,6 +200,7 @@ void interface_iniciar(void)
     textura_vitoria = LoadTexture("assets/images/vitoria.png");
     textura_derrota = LoadTexture("assets/images/derrota.png");
     textura_mesa = LoadTexture("assets/images/mesa.png");
+    cartas_iniciar();
     animacoes_iniciar();
     SetExitKey(KEY_NULL);
     SetTargetFPS(60);
@@ -218,6 +220,7 @@ void interface_encerrar(void)
     if (textura_mesa.id != 0)
         UnloadTexture(textura_mesa);
 
+    cartas_encerrar();
     animacoes_encerrar();
 
     CloseWindow();
@@ -497,6 +500,18 @@ static int total_de_cartas_a_vista;
 static PokerCard cartas_reveladas[2];
 static bool ha_cartas_reveladas;
 
+/* O evento de distribuição fixa as cartas do adversário e seus dorsos nesta mão. */
+static PokerCard cartas_do_adversario[2];
+static bool marcou_carta_do_adversario[2];
+static bool adversario_recebeu_cartas;
+static int carta_marcada_ampliada = -1;
+static bool cartas_do_adversario_visiveis;
+
+static const Rectangle AREAS_DO_ADVERSARIO[2] = {
+    { 766.0f, 412.0f, 94.0f, 132.0f },
+    { 872.0f, 412.0f, 94.0f, 132.0f }
+};
+
 static bool carta_esta_a_vista(PokerCard carta)
 {
     for (int i = 0; i < total_de_cartas_a_vista; i++) {
@@ -670,6 +685,28 @@ EntradaMesa interface_mesa_ler_entrada(void)
 {
     EntradaMesa entrada = { COMANDO_NENHUM, 0, false, false, { PEDIDO_NENHUM, 0, { 0, POKER_CLUBS } } };
 
+    if (carta_marcada_ampliada >= 0) {
+        if (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            carta_marcada_ampliada = -1;
+        return entrada;
+    }
+
+    if (animacoes_ativas()) {
+        entrada.voltar = IsKeyPressed(KEY_ESCAPE);
+        return entrada;
+    }
+
+    if (cartas_do_adversario_visiveis && tela_de_trapacas == TRAPACAS_FECHADAS &&
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        for (int i = 0; i < 2; i++) {
+            if (marcou_carta_do_adversario[i] &&
+                CheckCollisionPointRec(posicao_do_mouse(), AREAS_DO_ADVERSARIO[i])) {
+                carta_marcada_ampliada = i;
+                return entrada;
+            }
+        }
+    }
+
     if (tela_de_trapacas != TRAPACAS_FECHADAS) {
         ler_entrada_das_trapacas(&entrada);
         return entrada;
@@ -739,6 +776,11 @@ EntradaMesa interface_mesa_ler_entrada(void)
     }
 
     return entrada;
+}
+
+bool interface_mesa_modal_aberto(void)
+{
+    return carta_marcada_ampliada >= 0;
 }
 
 /**
@@ -815,6 +857,11 @@ void interface_mesa_limpar_eventos(void)
 {
     eventos_registrados = 0;
     ha_cartas_reveladas = false;
+    adversario_recebeu_cartas = false;
+    marcou_carta_do_adversario[0] = false;
+    marcou_carta_do_adversario[1] = false;
+    carta_marcada_ampliada = -1;
+    cartas_do_adversario_visiveis = false;
     fechar_trapacas();
     animacoes_cancelar();
 }
@@ -939,6 +986,11 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
     switch (evento->tipo) {
         case EVENTO_MAO_INICIADA:
             ha_cartas_reveladas = false;
+            adversario_recebeu_cartas = false;
+            marcou_carta_do_adversario[0] = false;
+            marcou_carta_do_adversario[1] = false;
+            carta_marcada_ampliada = -1;
+            cartas_do_adversario_visiveis = false;
             animacoes_comecar_embaralhamento();
             snprintf(linha, sizeof linha, "Nova mão: dealer %s, blinds %lld/%lld",
                      nome_do_assento(evento->mao_iniciada.dealer),
@@ -979,6 +1031,19 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             break;
 
         case EVENTO_TRAPACA:
+            if (evento->trapaca.pedido == PEDIDO_MARCAR_CARTA &&
+                evento->trapaca.resultado == TRAPACA_SUCESSO &&
+                evento->trapaca.na_distribuicao &&
+                evento->trapaca.quantidade_de_cartas == 1 && adversario_recebeu_cartas) {
+                PokerCard marcada = evento->trapaca.cartas[0];
+
+                for (int i = 0; i < 2; i++) {
+                    if (cartas_do_adversario[i].rank == marcada.rank &&
+                        cartas_do_adversario[i].suit == marcada.suit)
+                        marcou_carta_do_adversario[i] = true;
+                }
+            }
+
             if (evento->trapaca.pedido == PEDIDO_SUBORNO_VER &&
                 evento->trapaca.resultado == TRAPACA_SUCESSO &&
                 evento->trapaca.quantidade_de_cartas == 2) {
@@ -1005,6 +1070,11 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             break;
 
         case EVENTO_CARTAS_DISTRIBUIDAS:
+            if (evento->cartas_distribuidas.assento == TORNEIO_ASSENTO_ADVERSARIO) {
+                cartas_do_adversario[0] = evento->cartas_distribuidas.cartas[0];
+                cartas_do_adversario[1] = evento->cartas_distribuidas.cartas[1];
+                adversario_recebeu_cartas = true;
+            }
             break;
     }
 }
@@ -1024,23 +1094,24 @@ static void desenhar_linha(const char *texto, int *y, Color cor)
 static void desenhar_acoes_do_jogador(int y, PokerChips aposta_escolhida)
 {
     char rotulo[64];
-    int x = 40;
+    int x = 28;
+    int tamanho = 19;
 
-    DrawText("SUA VEZ:", x, y, 22, COR_OURO);
-    x += MeasureText("SUA VEZ:", 22) + 24;
+    DrawText("SUA VEZ:", x, y, tamanho, COR_OURO);
+    x += MeasureText("SUA VEZ:", tamanho) + 14;
 
-    x += botao_de_texto("[F] desistir", x, y, 22, COR_OURO, BOTAO_DESISTIR) + 24;
-    x += botao_de_texto("[C] passar ou pagar", x, y, 22, COR_OURO, BOTAO_PASSAR_OU_PAGAR) + 24;
+    x += botao_de_texto("[F] desistir", x, y, tamanho, COR_OURO, BOTAO_DESISTIR) + 14;
+    x += botao_de_texto("[C] passar ou pagar", x, y, tamanho, COR_OURO, BOTAO_PASSAR_OU_PAGAR) + 14;
 
     if (aposta_escolhida > 0) {
         snprintf(rotulo, sizeof rotulo, "[R] apostar %lld", (long long)aposta_escolhida);
-        x += botao_de_texto(rotulo, x, y, 22, COR_OURO, BOTAO_APOSTAR) + 12;
-        x += botao_de_texto("[-]", x, y, 22, COR_OURO, BOTAO_DIMINUIR) + 12;
-        x += botao_de_texto("[+]", x, y, 22, COR_OURO, BOTAO_AUMENTAR) + 24;
+        x += botao_de_texto(rotulo, x, y, tamanho, COR_OURO, BOTAO_APOSTAR) + 10;
+        x += botao_de_texto("[-]", x, y, tamanho, COR_OURO, BOTAO_DIMINUIR) + 10;
+        x += botao_de_texto("[+]", x, y, tamanho, COR_OURO, BOTAO_AUMENTAR) + 14;
     }
 
-    x += botao_de_texto("[A] all-in", x, y, 22, COR_OURO, BOTAO_ALL_IN) + 24;
-    botao_de_texto("[T] trapaças", x, y, 22, COR_OURO, BOTAO_TRAPACAS);
+    x += botao_de_texto("[A] all-in", x, y, tamanho, COR_OURO, BOTAO_ALL_IN) + 14;
+    botao_de_texto("[T] trapaças", x, y, tamanho, COR_OURO, BOTAO_TRAPACAS);
 }
 
 /** Escreve o texto de um valor de carta, de 2 a 14. */

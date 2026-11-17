@@ -290,11 +290,13 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
 static EstadoJogo executar_quadro_mesa(void)
 {
     EntradaMesa entrada;
+    bool modal_estava_aberto;
 
     if (!mesa.ativa && !iniciar_partida(&mesa))
         return ESTADO_MENU;
 
     repassar_eventos(&mesa.partida);
+    modal_estava_aberto = interface_mesa_modal_aberto();
     entrada = interface_mesa_ler_entrada();
 
     if (entrada.voltar) {
@@ -304,8 +306,13 @@ static EstadoJogo executar_quadro_mesa(void)
         return ESTADO_MENU;
     }
 
-    if (animacoes_embaralhando()) {
+    if (animacoes_ativas()) {
         animacoes_atualizar(interface_tempo_do_quadro());
+        interface_mesa_desenhar(&mesa.partida, mesa.aposta);
+        return ESTADO_MESA;
+    }
+
+    if (modal_estava_aberto || interface_mesa_modal_aberto()) {
         interface_mesa_desenhar(&mesa.partida, mesa.aposta);
         return ESTADO_MESA;
     }

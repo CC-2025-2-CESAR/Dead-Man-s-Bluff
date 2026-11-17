@@ -174,6 +174,9 @@ bool interface_aplicar_resolucao(Resolucao resolucao);
  */
 EntradaMesa interface_mesa_ler_entrada(void);
 
+/** Indica se a visualização ampliada de uma carta marcada está aberta. */
+bool interface_mesa_modal_aberto(void);
+
 /**
  * Recebe um evento do jogo, na ordem em que aconteceu, para animar ou
  * registrar. A interface não precisa ler o estado do motor para descobrir o

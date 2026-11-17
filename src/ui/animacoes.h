@@ -9,6 +9,7 @@ void animacoes_comecar_embaralhamento(void);
 void animacoes_cancelar(void);
 void animacoes_ignorar_proximo_inicio(void);
 bool animacoes_embaralhando(void);
+bool animacoes_ativas(void);
 void animacoes_atualizar(double segundos);
 void animacoes_desenhar(void);
 
