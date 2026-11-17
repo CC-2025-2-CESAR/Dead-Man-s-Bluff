@@ -27,6 +27,14 @@
 /** Quantas mãos uma carta marcada dura, contando a mão em que foi marcada. */
 #define PARTIDA_MARCA_DURACAO 5
 
+/**
+ * Limites do estilo dinâmico do adversário, em % das fichas com que ele
+ * começou o confronto. Com PARTIDA_ESTILO_ATRAS_PCT ou menos ele está
+ * perdendo; com PARTIDA_ESTILO_FRENTE_PCT ou mais, ganhando.
+ */
+#define PARTIDA_ESTILO_ATRAS_PCT 60
+#define PARTIDA_ESTILO_FRENTE_PCT 125
+
 /** Chance, em %, de o dealer subornado pegar o dinheiro e não fazer o serviço. */
 #define PARTIDA_CHANCE_DO_DEALER_RECUSAR 30
 
@@ -399,6 +407,24 @@ PokerStatus partida_acoes_legais(const Partida *partida, PokerLegalActions *out)
  * @return o nome, ou "?" se o índice for inválido.
  */
 const char *partida_nome_do_adversario(int confronto);
+
+/**
+ * Diz como o adversário joga a mão que começa com o torneio neste estado.
+ * Cada adversário tem um estilo de base e muda de estilo conforme as fichas
+ * que tem em relação às que trouxe para o confronto:
+ *
+ * - Agressivo (1º): fica Medroso quando está perdendo.
+ * - Medroso (2º): fica Agressivo quando está ganhando.
+ * - Desconfiado (3º, equilibrado): fica Agressivo ganhando e Medroso perdendo.
+ *
+ * Depende só do torneio, que o salvamento já guarda no começo da mão; por
+ * isso o estilo se refaz ao continuar sem entrar no arquivo. O estilo vale
+ * pela mão inteira.
+ *
+ * @param torneio estado do torneio no começo da mão.
+ * @return o estilo da IA; o equilibrado se o confronto for inválido.
+ */
+PokerAIStyle partida_estilo_do_adversario(const Torneio *torneio);
 
 /**
  * Junta o que é preciso para continuar a partida mais tarde, no ponto em
