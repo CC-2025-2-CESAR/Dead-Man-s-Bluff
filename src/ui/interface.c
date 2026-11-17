@@ -997,6 +997,31 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
     }
 }
 
+/**
+ * Escreve, ao lado do nome do adversário, o comportamento dele nesta mão:
+ * " (agressivo)", " (medroso)" ou " (desconfiado)".
+ */
+static void texto_do_comportamento(const Partida *partida, char *out, size_t tamanho)
+{
+    const char *nome;
+
+    switch (partida->ia.style) {
+        case POKER_AI_AGGRESSIVE:
+            nome = "agressivo";
+            break;
+
+        case POKER_AI_CAUTIOUS:
+            nome = "medroso";
+            break;
+
+        default:
+            nome = "desconfiado";
+            break;
+    }
+
+    snprintf(out, tamanho, " (%s)", nome);
+}
+
 /** Desenha uma linha de texto simples e desce a posição vertical. */
 static void desenhar_linha(const char *texto, int *y, Color cor)
 {
@@ -1222,6 +1247,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     const PokerTable *mesa = &mao->mesa;
     bool terminou = mao->situacao == MAO_ENCERRADA || mao->situacao == MAO_REGISTRADA;
     char linha[TAMANHO_LINHA];
+    char estilo_da_mao[24];
     char cartas[64];
     PokerCard ordenadas[MAO_CARTAS_ORDENADAS];
     size_t quantidade;
@@ -1260,9 +1286,11 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         terminar_desenho();
         return;
     }
-    snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s     MÃO %d     BLINDS %lld/%lld",
+    texto_do_comportamento(partida, estilo_da_mao, sizeof estilo_da_mao);
+    snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s%s     MÃO %d     BLINDS %lld/%lld",
              partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
              partida_nome_do_adversario(partida->torneio.confronto),
+             estilo_da_mao,
              partida->torneio.maos_jogadas + (terminou ? 0 : 1),
              (long long)(mesa->big_blind / 2), (long long)mesa->big_blind);
     desenhar_linha(linha, &y, COR_OURO);

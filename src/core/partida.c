@@ -5,22 +5,23 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * Escolhe o perfil da IA de um confronto: o primeiro adversário é o
- * Agressivo, o segundo o Medroso e o último o Desconfiado.
- */
-static PokerAIStyle estilo_do_confronto(int confronto)
+PokerAIStyle partida_estilo_do_adversario(const Torneio *torneio)
 {
-    switch (confronto) {
-        case 0:
-            return POKER_AI_AGGRESSIVE;
+    PokerChips inicial = torneio_fichas_iniciais_adversario(torneio->confronto);
 
-        case 1:
-            return POKER_AI_CAUTIOUS;
-
-        default:
-            return POKER_AI_BALANCED;
+    if (inicial <= 0) {
+        return POKER_AI_BALANCED;
     }
+
+    if (torneio->fichas_adversario * 100 <= inicial * PARTIDA_ESTILO_ATRAS_PCT) {
+        return POKER_AI_CAUTIOUS;
+    }
+
+    if (torneio->fichas_adversario * 100 >= inicial * PARTIDA_ESTILO_FRENTE_PCT) {
+        return POKER_AI_AGGRESSIVE;
+    }
+
+    return POKER_AI_BALANCED;
 }
 
 static bool carta_valida(PokerCard carta)
@@ -34,14 +35,18 @@ static bool mesma_carta(PokerCard a, PokerCard b)
     return a.rank == b.rank && a.suit == b.suit;
 }
 
-/** Perfil de risco do adversário do confronto atual. */
+/**
+ * Perfil de risco do adversário do confronto atual: o quanto ele repara nas
+ * trapaças. É de cada oponente e sobe de um confronto para o outro; não segue
+ * o estilo de jogo, que muda durante o confronto.
+ */
 static ProbPerfilIA perfil_do_adversario(const Partida *partida)
 {
-    switch (partida->ia.style) {
-        case POKER_AI_AGGRESSIVE:
+    switch (partida->torneio.confronto) {
+        case 0:
             return PROB_IA_AGRESSIVO;
 
-        case POKER_AI_CAUTIOUS:
+        case 1:
             return PROB_IA_MEDROSO;
 
         default:
@@ -269,6 +274,7 @@ static bool iniciar_mao(Partida *partida)
     }
 
     partida->torneio_da_mao = partida->torneio;
+    partida->ia.style = partida_estilo_do_adversario(&partida->torneio_da_mao);
     partida->cheats_da_mao = partida->cheats;
     partida->risco_da_mao = partida->risco;
     partida->estado_do_risco_da_mao = partida->estado_do_risco;
@@ -371,7 +377,6 @@ bool partida_iniciar(Partida *partida, unsigned semente)
     prob_inicializar(&partida->risco);
     cheat_init_state(&partida->cheats);
     torneio_iniciar(&partida->torneio);
-    partida->ia.style = estilo_do_confronto(partida->torneio.confronto);
 
     if (iniciar_mao(partida)) {
         return true;
@@ -519,7 +524,6 @@ bool partida_continuar(Partida *partida)
 
         prob_avancar_mesa(&partida->risco);
         normalizar_mesa(&partida->cheats);
-        partida->ia.style = estilo_do_confronto(partida->torneio.confronto);
         return iniciar_mao(partida);
     }
 
@@ -587,13 +591,13 @@ const char *partida_nome_do_adversario(int confronto)
 {
     switch (confronto) {
         case 0:
-            return "Agressivo";
+            return "Oponente 1";
 
         case 1:
-            return "Medroso";
+            return "Oponente 2";
 
         case 2:
-            return "Desconfiado";
+            return "Oponente 3";
 
         default:
             return "?";
@@ -1144,7 +1148,7 @@ bool partida_restaurar(Partida *partida, const PartidaSalva *salva)
     partida->estado_do_risco_da_mao = salva->estado_do_risco;
     partida->cheats = salva->cheats;
     partida->cheats_da_mao = salva->cheats;
-    partida->ia.style = estilo_do_confronto(partida->torneio.confronto);
+    partida->ia.style = partida_estilo_do_adversario(&partida->torneio_da_mao);
 
     srand(salva->semente_da_mao);
     refeita = abrir_mao(partida);
