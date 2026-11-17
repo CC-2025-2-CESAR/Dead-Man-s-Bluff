@@ -234,18 +234,29 @@ static void test_custo_e_chance_de_cada_trapaca(void)
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_SUBORNO_VER) == 24);
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_MANGA) == 30);
 
-    p.ia.style = POKER_AI_CAUTIOUS;
+    /* A desconfiança é do oponente do confronto e sobe de um para o outro... */
+    p.torneio.confronto = 1;
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 15);
-    p.ia.style = POKER_AI_BALANCED;
+    p.torneio.confronto = 2;
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 25);
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_MANGA) == 62);
 
-    /* Embriagado, a desconfiança cai. */
-    p.cheats.maos_embriagado = 1;
-    CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 13);
+    /* ... e não segue o estilo de jogo, que muda durante o confronto. */
+    p.torneio.confronto = 0;
     p.ia.style = POKER_AI_CAUTIOUS;
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 12);
     p.ia.style = POKER_AI_AGGRESSIVE;
+    CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 12);
+    p.ia.style = POKER_AI_BALANCED;
+    CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 12);
+
+    /* Embriagado, a desconfiança cai. */
+    p.cheats.maos_embriagado = 1;
+    p.torneio.confronto = 2;
+    CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 13);
+    p.torneio.confronto = 1;
+    CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 12);
+    p.torneio.confronto = 0;
     CHECK(partida_chance_de_descoberta(&p, PEDIDO_BEBIDA) == 10);
     p.cheats.maos_embriagado = 0;
 
@@ -1055,7 +1066,7 @@ static void test_novo_confronto_limpa_a_mesa_e_guarda_a_manga(void)
         fila_eventos_iniciar(&p.eventos);
 
         CHECK(partida_continuar(&p));
-        CHECK(p.torneio.confronto == 1 && p.ia.style == POKER_AI_CAUTIOUS);
+        CHECK(p.torneio.confronto == 1 && p.ia.style == POKER_AI_BALANCED);
         CHECK(p.cheats.maos_embriagado == 0 && !p.adversario_embriagado);
         CHECK(p.cheats.usos_cumplice_blind == 0 && !p.cheats.suborno_usado_na_mao);
 

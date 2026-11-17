@@ -78,10 +78,10 @@ Quem chama o quê, em ordem:
 - `partida_iniciar(&partida, semente)` chama `srand` com a semente, prepara o torneio e a IA do primeiro adversário e inicia a primeira mão. A mesma semente com as mesmas ações reproduz a mesma partida.
 - Olhe `partida.situacao` a cada quadro. Com `PARTIDA_VEZ_DO_JOGADOR`, chame `partida_agir_jogador(&partida, acao)` (`partida_acoes_legais` diz o que pode). Com `PARTIDA_VEZ_DO_ADVERSARIO`, chame `partida_agir_adversario(&partida, NULL)` no ritmo que a UI quiser, por exemplo depois de uma pausa, para o adversário não responder de imediato. Com `PARTIDA_MAO_ENCERRADA` ou `PARTIDA_CONFRONTO_VENCIDO`, chame `partida_continuar(&partida)`. Com `PARTIDA_ROLETA`, chame `partida_puxar_gatilho(&partida)` quando o jogador pedir. `PARTIDA_JOGADOR_FALIDO` (sem recuperações sobrando), `PARTIDA_JOGADOR_MORTO` e `PARTIDA_CAMPEAO` encerram a partida.
 - O resultado de cada mão já entra no torneio dentro da chamada que a encerra, e os eventos (3.3) ficam em `partida.eventos` para a UI consumir a cada quadro.
-- O perfil da IA muda a cada confronto: Agressivo, Medroso e Desconfiado. `partida_nome_do_adversario` dá o nome para a tela. O modo embriagado fica em `partida.adversario_embriagado`, que as trapaças vão ligar; hoje é sempre falso.
+- Os três oponentes **não têm estilo fixo**: todos alternam entre os três comportamentos (agressivo, medroso e desconfiado) conforme as fichas do adversário em relação às que ele trouxe (`partida_estilo_do_adversario`, escolhido no começo de cada mão e válido por ela inteira): com `PARTIDA_ESTILO_ATRAS_PCT` (60%) ou menos ele fica medroso, com `PARTIDA_ESTILO_FRENTE_PCT` (125%) ou mais fica agressivo, e no meio, onde todo confronto começa, fica desconfiado (`POKER_AI_BALANCED`). O estilo é função só do torneio no começo da mão, que o salvamento já guarda, então não entra no arquivo. Não há histerese: perto de um limite o estilo pode alternar de uma mão para outra. `partida_nome_do_adversario` dá o nome provisório (Oponente 1, 2 e 3), que não diz como ele joga; a tela mostra o comportamento da mão ao lado do nome, e a interface pode usar `partida.ia.style` para escolher a expressão do oponente. A desconfiança com as trapaças (`perfil_do_adversario`) **não** segue o estilo: é de cada oponente e sobe de um para o outro (multiplicadores 1,2, 1,5 e 2,5 do módulo de probabilidade). O modo embriagado fica em `partida.adversario_embriagado`, que as trapaças vão ligar; hoje é sempre falso.
 - **Roleta:** quando o jogador zera, a partida vai para `PARTIDA_ROLETA` (com `partida.roleta_motivo == ROLETA_FALENCIA`) e espera o gatilho. `partida_puxar_gatilho` sorteia com um gerador da `Partida` (`estado_do_risco`), de modo que refazer a mão dá o mesmo resultado. Se o jogador morre, a situação vira `PARTIDA_JOGADOR_MORTO`. Se sobrevive, entra uma bala no tambor, o contador de usos das trapaças zera, o core chama `torneio_recuperar_jogador` e a situação volta a `PARTIDA_MAO_ENCERRADA`, para o jogador seguir com `partida_continuar`. Depois de `PARTIDA_RECUPERACOES_MAXIMAS` (3) recuperações, a próxima falência já é definitiva (`PARTIDA_JOGADOR_FALIDO`), sem roleta. Ao vencer um confronto, `partida_continuar` tira uma bala (mínimo 1). As regras estão na seção 4, e o risco (`SistemaRisco`) vive na `Partida`.
 - **Trapaças:** na vez do jogador, `partida_trapacear(&partida, pedido, &resultado)` tenta uma trapaça sem gastar a vez dele. `partida_pode_trapacear`, `partida_custo_da_trapaca` e `partida_chance_de_descoberta` dizem à interface o que vale agora, quanto custa e qual o risco. O custo sai da pilha do jogador na hora, e o mesmo valor sai do total da mão, porque essas fichas saem de circulação (5.2). A recusa do dealer (30%, só no suborno) e a descoberta saem do gerador da `Partida` (`estado_do_risco`), nessa ordem. Ser descoberto leva à roleta (`ROLETA_DESCOBERTO`), e sobreviver devolve a vez ao jogador. O estado físico das trapaças fica em `partida.cheats` (`gameplay/trapacas.h`) e o risco em `partida.risco`; os módulos do Gabriel não sorteiam e não conhecem a `Partida`. A bebedeira do adversário (`partida.adversario_embriagado`) deriva de `cheats.maos_embriagado`.
-- Os testes jogam 120 partidas inteiras com três jogadores automáticos (passivo, all-in e aleatório), conferindo a conservação das fichas, o perfil da IA de cada confronto, um `EVENTO_POTE_PAGO` por mão e o mesmo resultado para a mesma semente.
+- Os testes jogam 120 partidas inteiras com três jogadores automáticos (passivo, all-in e aleatório), conferindo a conservação das fichas, o estilo da IA em cada mão, um `EVENTO_POTE_PAGO` por mão e o mesmo resultado para a mesma semente.
 
 ### 3.2 Fronteiras de responsabilidade
 
@@ -156,9 +156,9 @@ Para continuar **no meio de uma mão**, o que se guarda não é uma cópia da me
 
 | Confronto | Adversário | Fichas iniciais dele |
 | --- | --- | --- |
-| 1 | Agressivo | 2.000 |
-| 2 | Medroso | 4.000 |
-| 3 | Desconfiado (final) | 8.000 |
+| 1 | Oponente 1 | 2.000 |
+| 2 | Oponente 2 | 4.000 |
+| 3 | Oponente 3 (final) | 8.000 |
 
 - O jogador começa com 2.000 fichas e **leva o saldo acumulado** para a etapa seguinte. Exemplo do conceito: vencer o primeiro sem gastar nada em trapaças chega ao segundo com 4.000; gastando 600, chega com 3.400.
 - Os blinds sobem a cada determinado número de mãos, para evitar partidas intermináveis. **Ao iniciar um novo confronto, os blinds reiniciam** em valores adequados à etapa.
@@ -182,13 +182,15 @@ Para continuar **no meio de uma mão**, o que se guarda não é uma cópia da me
 
 ### Adversários e IA
 
-| Perfil | Estilo | Quando embriagado |
+A IA tem três **estilos de jogo**. Eles não identificam os oponentes: todo oponente passa de um estilo a outro durante o confronto, e começa desconfiado (ver 3.1).
+
+| Estilo | Como joga | Quando embriagado |
 | --- | --- | --- |
 | Agressivo (loose-aggressive) | Joga muitas mãos, aposta e blefa bastante | Fica impulsivo e erra mais |
 | Medroso (tight) | Range restrito, desiste diante de apostas grandes; se insiste ou aumenta, provavelmente tem mão forte | Perde cautela |
-| Desconfiado (regular) | Equilibrado e muito atento a trapaças | Perde parte da capacidade de detectar trapaças |
+| Desconfiado (regular, equilibrado) | Equilibrado | Paga mais apostas do que deveria |
 
-- **Um único motor de decisão** para os três, com parâmetros diferentes: cautela, agressividade, frequência de blefe e vigilância.
+- **Um único motor de decisão** para os três estilos, com parâmetros diferentes: cautela, agressividade e frequência de blefe. A vigilância contra trapaças é do oponente, não do estilo.
 - Pré-flop: tabelas de ranges. A partir do flop: um analisador avalia a força da mão (categoria, força relativa ao board e draws).
 - A decisão final combina avaliação da mão, tamanho da aposta, personalidade e sorteio (RNG).
 - Embriaguez é um **estado binário** (sóbrio ou embriagado), com modificadores fixos e duração limitada em mãos.

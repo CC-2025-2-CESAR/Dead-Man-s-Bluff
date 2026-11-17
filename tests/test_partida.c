@@ -43,11 +43,37 @@ static unsigned proximo_aleatorio(unsigned *semente)
     return *semente >> 8;
 }
 
-static PokerAIStyle estilo_esperado(int confronto)
+/**
+ * O estilo que a IA deve ter numa mão: desconfiado (equilibrado), medroso se o adversário está
+ * com poucas fichas e agressivo se está com muitas, em relação às que trouxe
+ * para o confronto. Escrito à parte da implementação, em outra forma (razão em
+ * vez de produto cruzado), para que o teste não repita o que ela faz.
+ */
+static PokerAIStyle estilo_esperado(int confronto, PokerChips fichas_adversario)
 {
-    return confronto == 0 ? POKER_AI_AGGRESSIVE
-         : confronto == 1 ? POKER_AI_CAUTIOUS
-         : POKER_AI_BALANCED;
+    static const PokerChips INICIAL[TORNEIO_CONFRONTOS] = {2000, 4000, 8000};
+    double razao = (double)fichas_adversario / (double)INICIAL[confronto];
+
+    if (razao <= PARTIDA_ESTILO_ATRAS_PCT / 100.0) {
+        return POKER_AI_CAUTIOUS;
+    }
+
+    if (razao >= PARTIDA_ESTILO_FRENTE_PCT / 100.0) {
+        return POKER_AI_AGGRESSIVE;
+    }
+
+    return POKER_AI_BALANCED;
+}
+
+
+static PokerAIStyle estilo_com(int confronto, PokerChips fichas_adversario)
+{
+    Torneio torneio;
+
+    torneio_iniciar(&torneio);
+    torneio.confronto = confronto;
+    torneio.fichas_adversario = fichas_adversario;
+    return partida_estilo_do_adversario(&torneio);
 }
 
 static PokerAction politica_passiva(const Partida *partida, unsigned *sorteio)
@@ -131,7 +157,8 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
 
         CHECK(++resultado.passos < LIMITE_DE_PASSOS);
         drenar_eventos(&partida, &resultado);
-        CHECK(partida.ia.style == estilo_esperado(partida.torneio.confronto));
+        CHECK(partida.ia.style == estilo_esperado(partida.torneio_da_mao.confronto,
+                                                  partida.torneio_da_mao.fichas_adversario));
 
         switch (partida.situacao) {
             case PARTIDA_VEZ_DO_JOGADOR:
@@ -249,7 +276,7 @@ static void test_primeira_mao_comeca_na_vez_do_jogador(void)
     CHECK(partida_iniciar(&partida, 1));
     CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
     CHECK(partida.torneio.confronto == 0);
-    CHECK(partida.ia.style == POKER_AI_AGGRESSIVE);
+    CHECK(partida.ia.style == POKER_AI_BALANCED);
     CHECK(partida.ia.action_rng == &partida.rng_acao);
     CHECK(partida.ia.equity_rng == &partida.rng_equidade);
     CHECK(!partida.adversario_embriagado);
@@ -268,9 +295,9 @@ static void test_primeira_mao_comeca_na_vez_do_jogador(void)
 
 static void test_nomes_dos_adversarios(void)
 {
-    CHECK(strcmp(partida_nome_do_adversario(0), "Agressivo") == 0);
-    CHECK(strcmp(partida_nome_do_adversario(1), "Medroso") == 0);
-    CHECK(strcmp(partida_nome_do_adversario(2), "Desconfiado") == 0);
+    CHECK(strcmp(partida_nome_do_adversario(0), "Oponente 1") == 0);
+    CHECK(strcmp(partida_nome_do_adversario(1), "Oponente 2") == 0);
+    CHECK(strcmp(partida_nome_do_adversario(2), "Oponente 3") == 0);
     CHECK(strcmp(partida_nome_do_adversario(-1), "?") == 0);
     CHECK(strcmp(partida_nome_do_adversario(TORNEIO_CONFRONTOS), "?") == 0);
 }
@@ -331,7 +358,7 @@ static void test_desistencia_registra_no_torneio_e_continua(void)
     CHECK(!partida_continuar(&partida));
 
     CHECK(partida_agir_adversario(&partida, &info) == POKER_OK);
-    CHECK(info.profile == POKER_AI_AGGRESSIVE);
+    CHECK(info.profile == POKER_AI_BALANCED);
     CHECK(partida.situacao != PARTIDA_VEZ_DO_ADVERSARIO ||
           partida.mao.mesa.actor == TORNEIO_ASSENTO_ADVERSARIO);
 
@@ -949,9 +976,172 @@ static void test_reiniciar_partida_libera_a_anterior(void)
     CHECK(partida.mao.baralho.count == 0 && partida.mao.baralho.head == NULL);
 }
 
+/** Joga passivo pelo jogador até a IA decidir uma vez, e devolve a decisão dela. */
+static PokerAIDecisionInfo jogar_ate_a_ia_decidir(Partida *partida)
+{
+    PokerAIDecisionInfo info = {0};
+    unsigned sorteio = 0;
+
+    for (int passos = 0; passos < 50; passos++) {
+        if (partida->situacao == PARTIDA_VEZ_DO_ADVERSARIO) {
+            CHECK(partida_agir_adversario(partida, &info) == POKER_OK);
+            return info;
+        }
+
+        CHECK(partida->situacao == PARTIDA_VEZ_DO_JOGADOR);
+        CHECK(partida_agir_jogador(partida, politica_passiva(partida, &sorteio)) == POKER_OK);
+    }
+
+    CHECK(false);
+    return info;
+}
+
+static void test_o_estilo_do_adversario_depende_das_fichas(void)
+{
+    /* Os três oponentes seguem a mesma regra: começam desconfiados e só mudam com as fichas. */
+    for (int confronto = 0; confronto < TORNEIO_CONFRONTOS; confronto++) {
+        PokerChips inicial = torneio_fichas_iniciais_adversario(confronto);
+        PokerChips atras = inicial * PARTIDA_ESTILO_ATRAS_PCT / 100;
+        PokerChips frente = inicial * PARTIDA_ESTILO_FRENTE_PCT / 100;
+
+        CHECK(estilo_com(confronto, inicial) == POKER_AI_BALANCED);
+        CHECK(estilo_com(confronto, atras + 1) == POKER_AI_BALANCED);
+        CHECK(estilo_com(confronto, atras) == POKER_AI_CAUTIOUS);
+        CHECK(estilo_com(confronto, 1) == POKER_AI_CAUTIOUS);
+        CHECK(estilo_com(confronto, 0) == POKER_AI_CAUTIOUS);
+        CHECK(estilo_com(confronto, frente - 1) == POKER_AI_BALANCED);
+        CHECK(estilo_com(confronto, frente) == POKER_AI_AGGRESSIVE);
+        CHECK(estilo_com(confronto, inicial * 3) == POKER_AI_AGGRESSIVE);
+
+        for (PokerChips fichas = 0; fichas <= inicial * 2; fichas += 37) {
+            CHECK(estilo_com(confronto, fichas) == estilo_esperado(confronto, fichas));
+        }
+    }
+
+    CHECK(estilo_com(-1, 2000) == POKER_AI_BALANCED);
+    CHECK(estilo_com(TORNEIO_CONFRONTOS, 2000) == POKER_AI_BALANCED);
+}
+
+static void test_o_estilo_muda_entre_maos_e_a_ia_joga_com_ele(void)
+{
+    Partida partida = {0};
+    PokerAIDecisionInfo info;
+    PokerChips total;
+
+    CHECK(partida_iniciar(&partida, 6));
+    CHECK(partida.ia.style == POKER_AI_BALANCED);
+    CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+    total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
+
+    /* Perdendo feio, o oponente passa a jogar medroso na mão seguinte. */
+    partida.torneio.fichas_adversario = 1000;
+    partida.torneio.fichas_jogador = total - 1000;
+    CHECK(partida_continuar(&partida));
+    CHECK(partida.ia.style == POKER_AI_CAUTIOUS);
+    CHECK(partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO);
+    CHECK(partida_agir_adversario(&partida, &info) == POKER_OK);
+    CHECK(info.profile == POKER_AI_CAUTIOUS);
+
+    for (int passos = 0; passos < 50 && (partida.situacao == PARTIDA_VEZ_DO_JOGADOR ||
+                                         partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO); passos++) {
+        if (partida.situacao == PARTIDA_VEZ_DO_JOGADOR) {
+            CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+        } else {
+            CHECK(partida_agir_adversario(&partida, &info) == POKER_OK);
+            CHECK(info.profile == POKER_AI_CAUTIOUS);
+        }
+    }
+
+    /* O estilo vale pela mão inteira, mesmo depois de as fichas mudarem. */
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(partida.ia.style == POKER_AI_CAUTIOUS);
+
+    /* Com as fichas de volta ao ponto de partida, a mão seguinte é desconfiada de novo. */
+    total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
+    partida.torneio.fichas_adversario = total / 2;
+    partida.torneio.fichas_jogador = total - total / 2;
+    CHECK(partida_continuar(&partida));
+    CHECK(partida.ia.style == POKER_AI_BALANCED);
+    CHECK(jogar_ate_a_ia_decidir(&partida).profile == POKER_AI_BALANCED);
+
+    for (int passos = 0; passos < 50 && (partida.situacao == PARTIDA_VEZ_DO_JOGADOR ||
+                                         partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO); passos++) {
+        if (partida.situacao == PARTIDA_VEZ_DO_JOGADOR) {
+            CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+        } else {
+            CHECK(partida_agir_adversario(&partida, NULL) == POKER_OK);
+        }
+    }
+
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+
+    /* Ganhando, o oponente passa a jogar agressivo. */
+    total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
+    partida.torneio.fichas_adversario = 2000 * PARTIDA_ESTILO_FRENTE_PCT / 100;
+    partida.torneio.fichas_jogador = total - partida.torneio.fichas_adversario;
+    CHECK(partida_continuar(&partida));
+    CHECK(partida.ia.style == POKER_AI_AGGRESSIVE);
+    CHECK(jogar_ate_a_ia_decidir(&partida).profile == POKER_AI_AGGRESSIVE);
+
+    partida_encerrar(&partida);
+}
+
+static void test_o_estilo_dinamico_se_refaz_ao_continuar_o_salvamento(void)
+{
+    static PartidaSalva salva;
+    Partida partida = {0};
+    Partida refeita = {0};
+    PokerAIDecisionInfo info;
+    PokerAIDecisionInfo info_refeita;
+    PokerChips total;
+
+    CHECK(partida_iniciar(&partida, 9));
+    CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+    total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
+    partida.torneio.fichas_adversario = 1000;
+    partida.torneio.fichas_jogador = total - 1000;
+    CHECK(partida_continuar(&partida));
+    CHECK(partida.ia.style == POKER_AI_CAUTIOUS);
+
+    /* Guardada no começo da mão, a partida volta com o mesmo estilo e decide igual. */
+    CHECK(partida_exportar(&partida, &salva));
+    CHECK(partida_restaurar(&refeita, &salva));
+    CHECK(refeita.ia.style == POKER_AI_CAUTIOUS);
+    CHECK(refeita.situacao == PARTIDA_VEZ_DO_ADVERSARIO);
+    CHECK(partida_agir_adversario(&partida, &info) == POKER_OK);
+    CHECK(partida_agir_adversario(&refeita, &info_refeita) == POKER_OK);
+    CHECK(info.profile == POKER_AI_CAUTIOUS && info_refeita.profile == POKER_AI_CAUTIOUS);
+    CHECK(partida.mao.quantidade_de_acoes == refeita.mao.quantidade_de_acoes);
+    CHECK(partida.mao.acoes[partida.mao.quantidade_de_acoes - 1].type ==
+          refeita.mao.acoes[refeita.mao.quantidade_de_acoes - 1].type);
+
+    /* Guardada depois de a mão acabar, volta com o estilo da mão, não o da seguinte. */
+    for (int passos = 0; passos < 50 && (partida.situacao == PARTIDA_VEZ_DO_JOGADOR ||
+                                         partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO); passos++) {
+        if (partida.situacao == PARTIDA_VEZ_DO_JOGADOR) {
+            CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+        } else {
+            CHECK(partida_agir_adversario(&partida, NULL) == POKER_OK);
+        }
+    }
+
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(partida_exportar(&partida, &salva));
+    CHECK(partida_restaurar(&refeita, &salva));
+    CHECK(refeita.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(refeita.ia.style == partida.ia.style);
+    CHECK(refeita.torneio.fichas_adversario == partida.torneio.fichas_adversario);
+
+    partida_encerrar(&partida);
+    partida_encerrar(&refeita);
+}
+
 int main(void)
 {
     test_primeira_mao_comeca_na_vez_do_jogador();
+    test_o_estilo_do_adversario_depende_das_fichas();
+    test_o_estilo_muda_entre_maos_e_a_ia_joga_com_ele();
+    test_o_estilo_dinamico_se_refaz_ao_continuar_o_salvamento();
     test_nomes_dos_adversarios();
     test_recusas_de_turno_e_de_estado();
     test_desistencia_registra_no_torneio_e_continua();
