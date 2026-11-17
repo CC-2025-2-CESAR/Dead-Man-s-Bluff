@@ -17,6 +17,9 @@ static Texture2D textura_vitoria = { 0 };
 static Texture2D textura_derrota = { 0 };
 
 static Texture2D textura_mesa = { 0 };
+static Texture2D textura_confirmacao_novo_jogo = { 0 };
+static Texture2D textura_configuracoes = { 0 };
+static Texture2D textura_trapacas = { 0 };
 
 static const Color COR_FUNDO = { 12, 46, 31, 255 };
 static const Color COR_OURO = { 212, 175, 55, 255 };
@@ -42,6 +45,18 @@ static void desenhar_texto_centralizado(const char *texto, int y, int tamanho, C
     int largura = MeasureText(texto, tamanho);
 
     DrawText(texto, (LARGURA_TELA - largura) / 2, y, tamanho, cor);
+}
+
+/** Ajusta um PNG às dimensões lógicas da tela, preservando sua transparência. */
+static void desenhar_textura_tela(Texture2D textura)
+{
+    if (textura.id == 0)
+        return;
+
+    DrawTexturePro(textura,
+                   (Rectangle){ 0, 0, (float)textura.width, (float)textura.height },
+                   (Rectangle){ 0, 0, (float)LARGURA_TELA, (float)ALTURA_TELA },
+                   (Vector2){ 0, 0 }, 0.0f, WHITE);
 }
 
 /**
@@ -200,6 +215,9 @@ void interface_iniciar(void)
     textura_vitoria = LoadTexture("assets/images/vitoria.png");
     textura_derrota = LoadTexture("assets/images/derrota.png");
     textura_mesa = LoadTexture("assets/images/mesa.png");
+    textura_confirmacao_novo_jogo = LoadTexture("assets/images/confirmacao_novo_jogo.png");
+    textura_configuracoes = LoadTexture("assets/images/configuracoes.png");
+    textura_trapacas = LoadTexture("assets/images/trapacas.png");
     cartas_iniciar();
     animacoes_iniciar();
     SetExitKey(KEY_NULL);
@@ -219,6 +237,15 @@ void interface_encerrar(void)
 
     if (textura_mesa.id != 0)
         UnloadTexture(textura_mesa);
+
+    if (textura_confirmacao_novo_jogo.id != 0)
+        UnloadTexture(textura_confirmacao_novo_jogo);
+
+    if (textura_configuracoes.id != 0)
+        UnloadTexture(textura_configuracoes);
+
+    if (textura_trapacas.id != 0)
+        UnloadTexture(textura_trapacas);
 
     cartas_encerrar();
     animacoes_encerrar();
@@ -321,14 +348,18 @@ void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe)
 {
     comecar_desenho();
 
-    desenhar_texto_centralizado(pergunta, 240, 56, COR_OURO);
-    DrawRectangle((LARGURA_TELA - 320) / 2, 320, 320, 3, COR_OURO);
-    desenhar_texto_centralizado(detalhe, 360, 28, COR_TEXTO);
+    if (textura_confirmacao_novo_jogo.id != 0) {
+        desenhar_textura_tela(textura_confirmacao_novo_jogo);
+    } else {
+        desenhar_texto_centralizado(pergunta, 240, 56, COR_OURO);
+        DrawRectangle((LARGURA_TELA - 320) / 2, 320, 320, 3, COR_OURO);
+        desenhar_texto_centralizado(detalhe, 360, 28, COR_TEXTO);
+        desenhar_texto_centralizado("Clique, ou ENTER para sim e ESC para não",
+                                    ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+    }
 
     botao_de_texto("SIM", LARGURA_TELA / 2 - 150 - MeasureText("SIM", 44) / 2, 450, 44, COR_OURO, BOTAO_SIM);
     botao_de_texto("NÃO", LARGURA_TELA / 2 + 150 - MeasureText("NÃO", 44) / 2, 450, 44, COR_TEXTO_SUAVE, BOTAO_NAO);
-
-    desenhar_texto_centralizado("Clique, ou ENTER para sim e ESC para não", ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
 
     terminar_desenho();
 }
@@ -375,9 +406,15 @@ void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int se
 {
     comecar_desenho();
 
-    desenhar_texto_centralizado("CONFIGURAÇÕES", 90, 64, COR_OURO);
-    DrawRectangle((LARGURA_TELA - 320) / 2, 175, 320, 3, COR_OURO);
-    desenhar_texto_centralizado("RESOLUÇÃO", 215, 32, COR_TEXTO);
+    if (textura_configuracoes.id != 0) {
+        desenhar_textura_tela(textura_configuracoes);
+    } else {
+        desenhar_texto_centralizado("CONFIGURAÇÕES", 90, 64, COR_OURO);
+        DrawRectangle((LARGURA_TELA - 320) / 2, 175, 320, 3, COR_OURO);
+        desenhar_texto_centralizado("RESOLUÇÃO", 215, 32, COR_TEXTO);
+        desenhar_texto_centralizado("Clique em uma opção para aplicar, ou use W/S, ENTER e ESC",
+                                    ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+    }
 
     for (int i = 0; i < RESOLUCOES_TOTAL; i++) {
         Resolucao resolucao = configuracoes_resolucao(i);
@@ -385,7 +422,7 @@ void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int se
         bool atual = configuracoes != NULL && i == configuracoes->resolucao;
         char rotulo[32];
         char linha[96];
-        int y = 290 + i * 56;
+        int y = textura_configuracoes.id != 0 ? 270 + i * 54 : 290 + i * 56;
 
         rotulo_da_resolucao(resolucao, rotulo, sizeof rotulo);
         snprintf(linha, sizeof linha, "%s%s%s", rotulo,
@@ -403,10 +440,8 @@ void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int se
                                      (float)(MeasureText(linha, 36) + 80), 48.0f }, BOTAO_RESOLUCAO + i);
     }
 
-    botao_centralizado("VOLTAR", 585, 30, COR_TEXTO_SUAVE, BOTAO_VOLTAR_CONFIGURACOES);
-
-    desenhar_texto_centralizado("Clique em uma opção para aplicar, ou use W/S, ENTER e ESC",
-                                ALTURA_TELA - 60, 20, COR_TEXTO_SUAVE);
+    botao_centralizado("VOLTAR", textura_configuracoes.id != 0 ? 555 : 585,
+                       30, COR_TEXTO_SUAVE, BOTAO_VOLTAR_CONFIGURACOES);
 
     terminar_desenho();
 }
@@ -1210,19 +1245,26 @@ static void desenhar_painel_das_trapacas(const Partida *partida)
     if (tela_de_trapacas == TRAPACAS_FECHADAS)
         return;
 
-    DrawRectangle(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_FUNDO);
-    DrawRectangleLines(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_OURO);
+    bool mostrar_png = tela_de_trapacas == TRAPACAS_MENU && textura_trapacas.id != 0;
+
+    if (mostrar_png) {
+        desenhar_textura_tela(textura_trapacas);
+    } else {
+        DrawRectangle(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_FUNDO);
+        DrawRectangleLines(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_OURO);
+    }
 
     if (tela_de_trapacas == TRAPACAS_MENU) {
         DrawText("TRAPAÇAS  (1 a 7, W/S e ENTER ou cliques escolhem; ESC fecha)", 40, y, 22, COR_OURO);
         botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
-        y += 40;
+        y += mostrar_png ? 48 : 40;
 
         for (int i = 0; i < PEDIDO_TOTAL - 1; i++) {
             TipoDePedido tipo = (TipoDePedido)(i + 1);
             bool vale = trapaca_status[tipo] == POKER_OK;
             const char *sufixo = "";
             char manga[24] = "";
+            char numero[12] = "";
 
             if (!vale)
                 sufixo = trapaca_status[tipo] == POKER_ERR_CHIPS ? "   (sem fichas)" : "   (não vale agora)";
@@ -1232,19 +1274,30 @@ static void desenhar_painel_das_trapacas(const Partida *partida)
                 snprintf(manga, sizeof manga, " (manga: %s)", carta);
             }
 
-            snprintf(linha, sizeof linha, "%s[%d] %s%s     custo %lld     risco %d%%%s%s",
-                     i == destaque_das_trapacas ? "> " : "  ", i + 1, ROTULOS[i], manga,
+            if (!mostrar_png)
+                snprintf(numero, sizeof numero, "[%d] ", i + 1);
+
+            snprintf(linha, sizeof linha, "%s%s%s%s     custo %lld     risco %d%%%s%s",
+                     i == destaque_das_trapacas ? "> " : "  ", numero, ROTULOS[i], manga,
                      (long long)partida_custo_da_trapaca(partida, tipo),
                      partida_chance_de_descoberta(partida, tipo), sufixo,
                      i == destaque_das_trapacas ? " <" : "");
-            botao_de_texto(linha, 40, y, 22,
-                           !vale ? COR_TEXTO_SUAVE : (i == destaque_das_trapacas ? COR_OURO : COR_TEXTO),
-                           BOTAO_TRAPACA + (int)tipo);
-            y += 34;
+            if (mostrar_png) {
+                Rectangle area = { 55.0f, (float)(y - 4), 1130.0f, 32.0f };
+                DrawText(linha, 110, y, 22,
+                         !vale ? COR_TEXTO_SUAVE
+                               : (i == destaque_das_trapacas || mouse_sobre(area) ? COR_OURO : COR_TEXTO));
+                registrar_botao(area, BOTAO_TRAPACA + (int)tipo);
+            } else {
+                botao_de_texto(linha, 40, y, 22,
+                               !vale ? COR_TEXTO_SUAVE : (i == destaque_das_trapacas ? COR_OURO : COR_TEXTO),
+                               BOTAO_TRAPACA + (int)tipo);
+            }
+            y += mostrar_png ? 35 : 34;
         }
 
         y += 10;
-        DrawText(DESCRICOES[destaque_das_trapacas], 40, y, 22, COR_TEXTO);
+        DrawText(DESCRICOES[destaque_das_trapacas], mostrar_png ? 55 : 40, y, 22, COR_TEXTO);
         y += 34;
 
         if (aviso_das_trapacas != NULL)
