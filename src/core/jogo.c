@@ -222,6 +222,14 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
+            /* A trapaça não gasta a vez; se for descoberta, a partida passa para a roleta. */
+            if (entrada->pedido.tipo != PEDIDO_NENHUM &&
+                partida_trapacear(partida, entrada->pedido, NULL) == POKER_OK)
+                avancou = true;
+
+            if (partida->situacao != PARTIDA_VEZ_DO_JOGADOR)
+                break;
+
             mesa->aposta = partida_ajustar_aposta(partida, mesa->aposta, entrada->ajuste_aposta);
 
             if (entrada->comando != COMANDO_NENHUM &&

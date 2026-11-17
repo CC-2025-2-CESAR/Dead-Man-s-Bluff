@@ -58,12 +58,18 @@ typedef struct {
  * passos de um big blind; 0 se não mexeu.
  * continuar: pediu para seguir depois do fim de uma mão ou da partida.
  * voltar: pediu para sair da mesa e voltar ao menu.
+ * pedido: trapaça que o jogador pediu, completa (carta da mão ou carta
+ * escolhida, se o tipo pede), ou PEDIDO_NENHUM. A interface guia o jogador
+ * pelo menu e pelos seletores de carta, e só devolve o pedido quando ele
+ * confirma; quem decide se vale é o core (partida_trapacear). Enquanto o menu
+ * das trapaças está aberto, os outros campos ficam sem pedido.
  */
 typedef struct {
     ComandoJogador comando;
     int ajuste_aposta;
     bool continuar;
     bool voltar;
+    PedidoTrapaca pedido;
 } EntradaMesa;
 
 /**
@@ -158,7 +164,11 @@ bool interface_aplicar_resolucao(Resolucao resolucao);
 /**
  * Lê o que o jogador fez na mesa neste quadro. Hoje: F desiste, C passa ou
  * paga, R aposta ou aumenta, A vai all-in, as setas para cima e para baixo
- * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu.
+ * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre o
+ * menu das trapaças (só na vez do jogador): os números de 1 a 7, as setas e
+ * ENTER escolhem, a carta da mão ou a carta pedida ao dealer vêm de um
+ * seletor (setas para o valor e o naipe), e ESC volta um passo ou fecha. Tudo
+ * isso também se faz com cliques.
  *
  * @return os comandos do quadro.
  */
