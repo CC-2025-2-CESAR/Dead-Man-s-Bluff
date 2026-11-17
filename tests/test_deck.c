@@ -110,6 +110,119 @@ static void test_insufficient_cards(void)
     deck_free(&deck);
 }
 
+static void test_remove_card(void)
+{
+    Deck deck = {0};
+    PokerCard card;
+    int ids[52];
+    int n = 0;
+
+    assert(deck_create(&deck));
+    assert(deck_contains(&deck, (PokerCard){2, POKER_CLUBS}));
+    assert(!deck_contains(NULL, (PokerCard){2, POKER_CLUBS}));
+    assert(!deck_contains(&deck, (PokerCard){1, POKER_CLUBS}));
+    assert(!deck_contains(&deck, (PokerCard){2, (PokerSuit)4}));
+
+    /* Cabeca, cauda e meio do baralho em ordem de criacao. */
+    assert(deck_remove_card(&deck, (PokerCard){2, POKER_CLUBS}));
+    assert(deck.count == 51);
+    assert(deck_remove_card(&deck, (PokerCard){14, POKER_SPADES}));
+    assert(deck.count == 50);
+    assert(deck_remove_card(&deck, (PokerCard){8, POKER_HEARTS}));
+    assert(deck.count == 49);
+    assert(deck.tail != NULL);
+    assert(!deck_contains(&deck, (PokerCard){2, POKER_CLUBS}));
+    assert(!deck_contains(&deck, (PokerCard){14, POKER_SPADES}));
+    assert(!deck_contains(&deck, (PokerCard){8, POKER_HEARTS}));
+    assert(deck_contains(&deck, (PokerCard){3, POKER_CLUBS}));
+
+    /* Segunda remocao, carta invalida e ponteiro nulo nao alteram nada. */
+    assert(!deck_remove_card(&deck, (PokerCard){8, POKER_HEARTS}));
+    assert(!deck_remove_card(&deck, (PokerCard){15, POKER_HEARTS}));
+    assert(!deck_remove_card(&deck, (PokerCard){5, (PokerSuit)-1}));
+    assert(!deck_remove_card(NULL, (PokerCard){5, POKER_HEARTS}));
+    assert(deck.count == 49);
+
+    /* A ordem das demais cartas continua a de criacao. */
+    while (deck_draw(&deck, &card)) {
+        ids[n++] = card_id(card);
+        assert(n == 1 || ids[n - 1] > ids[n - 2]);
+    }
+
+    assert(n == 49);
+    assert(deck.head == NULL && deck.tail == NULL && deck.count == 0);
+
+    /* Tirar a ultima carta deixa o baralho vazio e consistente. */
+    assert(deck_create(&deck));
+
+    for (int i = 0; i < 51; i++)
+        assert(deck_draw(&deck, &card));
+
+    assert(deck.count == 1 && deck.head == deck.tail);
+    assert(deck_remove_card(&deck, (PokerCard){14, POKER_SPADES}));
+    assert(deck.head == NULL && deck.tail == NULL && deck.count == 0);
+    deck_free(&deck);
+
+    /* Depois de tirar a cauda, o baralho ainda aceita comprar e embaralhar. */
+    assert(deck_create(&deck));
+    assert(deck_remove_card(&deck, (PokerCard){14, POKER_SPADES}));
+    deck_shuffle(&deck);
+    assert(deck.count == 51);
+
+    for (int i = 0; i < 51; i++)
+        assert(deck_draw(&deck, &card));
+
+    assert(!deck_draw(&deck, &card));
+    deck_free(&deck);
+}
+
+static void test_exchange(void)
+{
+    Deck deck = {0};
+    PokerCard card;
+    int ids[52];
+    int n = 0;
+
+    assert(deck_create(&deck));
+    assert(deck_remove_card(&deck, (PokerCard){9, POKER_CLUBS}));
+
+    /* O 5 de ouros sai e o 9 de paus ocupa o lugar dele, na mesma posicao. */
+    assert(deck_exchange(&deck, (PokerCard){5, POKER_DIAMONDS}, (PokerCard){9, POKER_CLUBS}));
+    assert(deck.count == 51);
+    assert(!deck_contains(&deck, (PokerCard){5, POKER_DIAMONDS}));
+    assert(deck_contains(&deck, (PokerCard){9, POKER_CLUBS}));
+
+    /* Recusas: carta que nao esta, carta repetida, invalidas, nulo. */
+    assert(!deck_exchange(&deck, (PokerCard){5, POKER_DIAMONDS}, (PokerCard){6, POKER_DIAMONDS}));
+    assert(!deck_exchange(&deck, (PokerCard){2, POKER_CLUBS}, (PokerCard){3, POKER_CLUBS}));
+    assert(!deck_exchange(&deck, (PokerCard){2, POKER_CLUBS}, (PokerCard){1, POKER_CLUBS}));
+    assert(!deck_exchange(&deck, (PokerCard){2, POKER_CLUBS}, (PokerCard){15, POKER_CLUBS}));
+    assert(!deck_exchange(&deck, (PokerCard){0, POKER_CLUBS}, (PokerCard){5, POKER_DIAMONDS}));
+    assert(!deck_exchange(&deck, (PokerCard){2, POKER_CLUBS}, (PokerCard){5, (PokerSuit)4}));
+    assert(!deck_exchange(NULL, (PokerCard){2, POKER_CLUBS}, (PokerCard){5, POKER_DIAMONDS}));
+    assert(deck.count == 51);
+
+    /* Trocar uma carta por ela mesma e permitido e nao muda nada. */
+    assert(deck_exchange(&deck, (PokerCard){2, POKER_CLUBS}, (PokerCard){2, POKER_CLUBS}));
+    assert(deck_contains(&deck, (PokerCard){2, POKER_CLUBS}));
+
+    while (deck_draw(&deck, &card)) {
+        ids[n++] = card_id(card);
+    }
+
+    assert(n == 51);
+
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++)
+            assert(ids[i] != ids[j]);
+    }
+
+    /* Sem o 9 de paus (id 7) na lista original, o 5 de ouros (id 16) estava na posicao 15. */
+    assert(ids[15] == card_id((PokerCard){9, POKER_CLUBS}));
+    assert(ids[0] == 0 && ids[6] == 6 && ids[7] == 8 && ids[14] == 15 && ids[16] == 17);
+    deck_free(&deck);
+}
+
 int main(void)
 {
     srand(12345);
@@ -119,6 +232,8 @@ int main(void)
     test_insufficient_cards();
     for (int i = 0; i < 500; i++)
         test_board_streets();
-    puts("OK: 52 cartas unicas, dealer 0/1, streets, queimadas e validacoes (500 rodadas).");
+    test_remove_card();
+    test_exchange();
+    puts("OK: 52 cartas unicas, dealer 0/1, streets, queimadas, remocao, troca e validacoes (500 rodadas).");
     return 0;
 }

@@ -9,13 +9,18 @@
 #include <string.h>
 
 #define CABECALHO "DMBSAVE"
-#define VERSAO 2
+#define VERSAO 3
 #define TAMANHO_DO_TOKEN 32
 #define TAMANHO_DO_CAMINHO 512
 #define LIMITE_DE_CONTADORES 1000000
 
-/** Código de uma entrada do registro: 0 a 5 são as ações do motor; este é o gatilho. */
+/**
+ * Código de uma entrada do registro: 0 a 5 são as ações do motor, seguidas de
+ * total; CODIGO_DO_GATILHO é o gatilho da roleta, seguido de 0;
+ * CODIGO_DA_TRAPACA é uma trapaça, seguida do tipo, da carta da mão e da carta.
+ */
 #define CODIGO_DO_GATILHO ((int)POKER_ALL_IN + 1)
+#define CODIGO_DA_TRAPACA ((int)POKER_ALL_IN + 2)
 
 /** Posição de leitura dentro do texto de um salvamento. */
 typedef struct {
@@ -73,10 +78,9 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
                 salva->torneio.maos_jogadas,
                 salva->torneio.dealer,
                 salva->torneio.recuperacoes) &&
-         anexar(saida, capacidade, &usado, "mao %u %d %d\n",
+         anexar(saida, capacidade, &usado, "mao %u %d\n",
                 salva->semente_da_mao,
-                (int)salva->situacao,
-                salva->adversario_embriagado ? 1 : 0) &&
+                (int)salva->situacao) &&
          anexar(saida, capacidade, &usado, "sementes %llu\n",
                 (unsigned long long)salva->estado_das_sementes) &&
          anexar(saida, capacidade, &usado, "ia %llu %llu\n",
@@ -91,7 +95,23 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
     ok = ok &&
          anexar(saida, capacidade, &usado, " %llu\n",
                 (unsigned long long)salva->estado_do_risco) &&
-         anexar(saida, capacidade, &usado, "cartas");
+         anexar(saida, capacidade, &usado, "trapacas %d %d %d %d",
+                salva->cheats.maos_embriagado,
+                salva->cheats.usos_cumplice_blind,
+                salva->cheats.suborno_usado_na_mao ? 1 : 0,
+                salva->cheats.as_na_manga_usado ? 1 : 0) &&
+         anexar_carta(saida, capacidade, &usado, salva->cheats.carta_na_manga) &&
+         anexar(saida, capacidade, &usado, " %d %d",
+                salva->cheats.carta_comprada_pendente ? 1 : 0,
+                salva->cheats.destino_carta_comprada) &&
+         anexar_carta(saida, capacidade, &usado, salva->cheats.carta_comprada);
+
+    for (int i = 0; ok && i < 5; i++) {
+        ok = anexar_carta(saida, capacidade, &usado, salva->cheats.cartas_marcadas[i]) &&
+             anexar(saida, capacidade, &usado, " %d", salva->cheats.turnos_marcacao[i]);
+    }
+
+    ok = ok && anexar(saida, capacidade, &usado, "\ncartas");
 
     for (int assento = 0; ok && assento < 2; assento++) {
         for (int i = 0; ok && i < 2; i++) {
@@ -115,6 +135,10 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
 
         if (entrada->tipo == REGISTRO_GATILHO) {
             ok = anexar(saida, capacidade, &usado, "%d 0\n", CODIGO_DO_GATILHO);
+        } else if (entrada->tipo == REGISTRO_TRAPACA) {
+            ok = anexar(saida, capacidade, &usado, "%d %d %d %d %d\n", CODIGO_DA_TRAPACA,
+                        (int)entrada->pedido.tipo, entrada->pedido.carta_da_mao,
+                        entrada->pedido.carta.rank, (int)entrada->pedido.carta.suit);
         } else {
             ok = anexar(saida, capacidade, &usado, "%d %lld\n",
                         (int)entrada->acao.type, (long long)entrada->acao.total);
@@ -224,6 +248,22 @@ static bool ler_carta(Leitor *leitor, PokerCard *carta)
     return true;
 }
 
+/** Como ler_carta, mas aceita a carta vazia (valor 0), que o jogo usa para "nenhuma". */
+static bool ler_carta_ou_vazia(Leitor *leitor, PokerCard *carta)
+{
+    long long valor;
+    long long naipe;
+
+    if (!ler_inteiro(leitor, 0, 14, &valor) || valor == 1 ||
+        !ler_inteiro(leitor, POKER_CLUBS, POKER_SPADES, &naipe)) {
+        return false;
+    }
+
+    carta->rank = (int)valor;
+    carta->suit = (PokerSuit)naipe;
+    return true;
+}
+
 static bool ler_torneio(Leitor *leitor, Torneio *torneio)
 {
     long long confronto, fichas_jogador, fichas_adversario, maos, dealer, recuperacoes;
@@ -257,19 +297,17 @@ static bool situacao_guardavel(long long situacao)
 
 static bool ler_mao(Leitor *leitor, PartidaSalva *salva)
 {
-    long long semente, situacao, embriagado;
+    long long semente, situacao;
 
     if (!esperar(leitor, "mao") ||
         !ler_inteiro(leitor, 0, UINT_MAX, &semente) ||
         !ler_inteiro(leitor, PARTIDA_VEZ_DO_JOGADOR, PARTIDA_JOGADOR_MORTO, &situacao) ||
-        !situacao_guardavel(situacao) ||
-        !ler_inteiro(leitor, 0, 1, &embriagado)) {
+        !situacao_guardavel(situacao)) {
         return false;
     }
 
     salva->semente_da_mao = (unsigned)semente;
     salva->situacao = (PartidaSituacao)situacao;
-    salva->adversario_embriagado = embriagado == 1;
     return true;
 }
 
@@ -306,6 +344,50 @@ static bool ler_risco(Leitor *leitor, PartidaSalva *salva)
     }
 
     return ler_sem_sinal(leitor, &salva->estado_do_risco);
+}
+
+/**
+ * Lê o estado das trapaças no início da mão: bebedeira, usos do cúmplice, a
+ * carta da manga, o suborno à espera e as cinco marcas, cada uma com a carta e
+ * as mãos que ainda lhe restam (0 quando o espaço está vazio).
+ */
+static bool ler_trapacas(Leitor *leitor, PartidaSalva *salva)
+{
+    CheatState *cheats = &salva->cheats;
+    long long embriagado, usos, suborno_usado, manga_usada, pendente, destino;
+
+    if (!esperar(leitor, "trapacas") ||
+        !ler_inteiro(leitor, 0, PARTIDA_USOS_MAXIMOS, &embriagado) ||
+        !ler_inteiro(leitor, 0, PARTIDA_USOS_MAXIMOS, &usos) ||
+        !ler_inteiro(leitor, 0, 1, &suborno_usado) ||
+        !ler_inteiro(leitor, 0, 1, &manga_usada) ||
+        !ler_carta(leitor, &cheats->carta_na_manga) ||
+        !ler_inteiro(leitor, 0, 1, &pendente) ||
+        !ler_inteiro(leitor, -1, 1, &destino) ||
+        !ler_carta_ou_vazia(leitor, &cheats->carta_comprada)) {
+        return false;
+    }
+
+    cheats->maos_embriagado = (int)embriagado;
+    cheats->usos_cumplice_blind = (int)usos;
+    cheats->suborno_usado_na_mao = suborno_usado == 1;
+    cheats->as_na_manga_usado = manga_usada == 1;
+    cheats->carta_comprada_pendente = pendente == 1;
+    cheats->destino_carta_comprada = (int)destino;
+
+    for (int i = 0; i < 5; i++) {
+        long long turnos;
+
+        if (!ler_carta_ou_vazia(leitor, &cheats->cartas_marcadas[i]) ||
+            !ler_inteiro(leitor, 0, PARTIDA_MARCA_DURACAO, &turnos) ||
+            (cheats->cartas_marcadas[i].rank == 0) != (turnos == 0)) {
+            return false;
+        }
+
+        cheats->turnos_marcacao[i] = (int)turnos;
+    }
+
+    return true;
 }
 
 static bool ler_cartas(Leitor *leitor, PartidaSalva *salva)
@@ -357,11 +439,27 @@ static bool ler_fichas_e_acoes(Leitor *leitor, PartidaSalva *salva)
     salva->quantidade_no_registro = (size_t)quantidade;
 
     for (size_t i = 0; i < salva->quantidade_no_registro; i++) {
-        long long codigo, total;
+        long long codigo, total, tipo, carta_da_mao;
         RegistroDaMao *entrada = &salva->registro[i];
 
-        if (!ler_inteiro(leitor, POKER_FOLD, CODIGO_DO_GATILHO, &codigo) ||
-            !ler_inteiro(leitor, 0, codigo == CODIGO_DO_GATILHO ? 0 : POKER_MAX_STACK, &total)) {
+        if (!ler_inteiro(leitor, POKER_FOLD, CODIGO_DA_TRAPACA, &codigo)) {
+            return false;
+        }
+
+        if (codigo == CODIGO_DA_TRAPACA) {
+            if (!ler_inteiro(leitor, PEDIDO_BEBIDA, PEDIDO_TOTAL - 1, &tipo) ||
+                !ler_inteiro(leitor, 0, 1, &carta_da_mao) ||
+                !ler_carta_ou_vazia(leitor, &entrada->pedido.carta)) {
+                return false;
+            }
+
+            entrada->tipo = REGISTRO_TRAPACA;
+            entrada->pedido.tipo = (TipoDePedido)tipo;
+            entrada->pedido.carta_da_mao = (int)carta_da_mao;
+            continue;
+        }
+
+        if (!ler_inteiro(leitor, 0, codigo == CODIGO_DO_GATILHO ? 0 : POKER_MAX_STACK, &total)) {
             return false;
         }
 
@@ -397,6 +495,7 @@ bool salvamento_interpretar(const char *texto, size_t tamanho, PartidaSalva *sal
         !ler_mao(&leitor, &lido) ||
         !ler_geradores(&leitor, &lido) ||
         !ler_risco(&leitor, &lido) ||
+        !ler_trapacas(&leitor, &lido) ||
         !ler_cartas(&leitor, &lido) ||
         !ler_fichas_e_acoes(&leitor, &lido) ||
         !esperar(&leitor, "fim") ||

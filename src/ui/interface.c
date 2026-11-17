@@ -567,6 +567,117 @@ void interface_mesa_limpar_eventos(void)
     eventos_registrados = 0;
 }
 
+static const char *nome_da_trapaca(TipoDePedido pedido)
+{
+    switch (pedido) {
+        case PEDIDO_BEBIDA:
+            return "bebida batizada";
+
+        case PEDIDO_CUMPLICE:
+            return "cúmplice";
+
+        case PEDIDO_MARCAR_CARTA:
+            return "carta marcada";
+
+        case PEDIDO_SUBORNO_MESA:
+        case PEDIDO_SUBORNO_MAO:
+        case PEDIDO_SUBORNO_VER:
+            return "suborno do dealer";
+
+        case PEDIDO_MANGA:
+            return "ás na manga";
+
+        case PEDIDO_NENHUM:
+        case PEDIDO_TOTAL:
+            break;
+    }
+
+    return "trapaça";
+}
+
+/** Escreve a linha do registro que conta o que uma trapaça fez. */
+static void linha_da_trapaca(const EventoTrapaca *trapaca, char *linha, size_t tamanho)
+{
+    char c0[8] = "";
+    char c1[8] = "";
+    const char *nome = nome_da_trapaca(trapaca->pedido);
+    long long custo = (long long)trapaca->custo;
+
+    if (trapaca->quantidade_de_cartas > 0) {
+        texto_da_carta(trapaca->cartas[0], c0, sizeof c0);
+    }
+
+    if (trapaca->quantidade_de_cartas > 1) {
+        texto_da_carta(trapaca->cartas[1], c1, sizeof c1);
+    }
+
+    if (trapaca->resultado == TRAPACA_DESCOBERTA) {
+        snprintf(linha, tamanho, "Descoberto! (%s)", nome);
+        return;
+    }
+
+    if (trapaca->resultado == TRAPACA_RECUSADA) {
+        if (trapaca->na_distribuicao) {
+            snprintf(linha, tamanho, "O dealer não achou a carta %s", c0);
+        } else {
+            snprintf(linha, tamanho, "O dealer pegou o dinheiro (-%lld) e não fez nada", custo);
+        }
+
+        return;
+    }
+
+    switch (trapaca->pedido) {
+        case PEDIDO_BEBIDA:
+            snprintf(linha, tamanho, "Bebida batizada: o adversário está embriagado");
+            break;
+
+        case PEDIDO_CUMPLICE:
+            snprintf(linha, tamanho, "Cúmplice (-%lld): o adversário tem %s", custo,
+                     trapaca->tem_categoria ? poker_category_name(trapaca->categoria) : "?");
+            break;
+
+        case PEDIDO_MARCAR_CARTA:
+            if (trapaca->na_distribuicao) {
+                snprintf(linha, tamanho, "Sua carta marcada %s está na mão do adversário", c0);
+            } else {
+                snprintf(linha, tamanho, "Carta marcada: %s", c0);
+            }
+
+            break;
+
+        case PEDIDO_SUBORNO_MESA:
+            if (trapaca->na_distribuicao) {
+                snprintf(linha, tamanho, "O dealer pôs %s na mesa", c0);
+            } else {
+                snprintf(linha, tamanho, "Dealer subornado (-%lld): %s será a próxima carta da mesa", custo, c0);
+            }
+
+            break;
+
+        case PEDIDO_SUBORNO_MAO:
+            if (trapaca->na_distribuicao) {
+                snprintf(linha, tamanho, "O dealer entregou %s a você", c0);
+            } else {
+                snprintf(linha, tamanho, "Dealer subornado (-%lld): você receberá %s na próxima mão", custo, c0);
+            }
+
+            break;
+
+        case PEDIDO_SUBORNO_VER:
+            snprintf(linha, tamanho, "Dealer subornado (-%lld): o adversário tem %s %s", custo, c0, c1);
+            break;
+
+        case PEDIDO_MANGA:
+            snprintf(linha, tamanho, "Ás na manga: você pegou %s e guardou %s", c0, c1);
+            break;
+
+        case PEDIDO_NENHUM:
+        case PEDIDO_TOTAL:
+            snprintf(linha, tamanho, "Trapaça");
+            break;
+    }
+}
+
 void interface_mesa_registrar_evento(const EventoJogo *evento)
 {
     char linha[TAMANHO_LINHA];
@@ -610,6 +721,11 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
                      evento->pote.vencedores == 1u ? "você ganhou"
                      : evento->pote.vencedores == 2u ? "o adversário ganhou"
                      : "empate");
+            guardar_linha(linha);
+            break;
+
+        case EVENTO_TRAPACA:
+            linha_da_trapaca(&evento->trapaca, linha, sizeof linha);
             guardar_linha(linha);
             break;
 

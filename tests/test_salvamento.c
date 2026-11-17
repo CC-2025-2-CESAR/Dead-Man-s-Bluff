@@ -161,6 +161,33 @@ static void conferir_registros_iguais(const RegistroDaMao *a, const RegistroDaMa
         CHECK(a->acao.type == b->acao.type);
         CHECK(a->acao.total == b->acao.total);
     }
+
+    if (a->tipo == REGISTRO_TRAPACA) {
+        CHECK(a->pedido.tipo == b->pedido.tipo);
+        CHECK(a->pedido.carta_da_mao == b->pedido.carta_da_mao);
+        CHECK(mesma_carta(a->pedido.carta, b->pedido.carta));
+    }
+}
+
+static void conferir_cheats_iguais(const CheatState *a, const CheatState *b)
+{
+    CHECK(a->maos_embriagado == b->maos_embriagado);
+    CHECK(a->usos_cumplice_blind == b->usos_cumplice_blind);
+    CHECK(a->suborno_usado_na_mao == b->suborno_usado_na_mao);
+    CHECK(a->as_na_manga_usado == b->as_na_manga_usado);
+    CHECK(mesma_carta(a->carta_na_manga, b->carta_na_manga));
+    CHECK(a->carta_comprada_pendente == b->carta_comprada_pendente);
+    CHECK(a->destino_carta_comprada == b->destino_carta_comprada);
+    CHECK(a->carta_comprada.rank == b->carta_comprada.rank);
+
+    for (int i = 0; i < 5; i++) {
+        CHECK(a->cartas_marcadas[i].rank == b->cartas_marcadas[i].rank);
+        CHECK(a->turnos_marcacao[i] == b->turnos_marcacao[i]);
+
+        if (a->cartas_marcadas[i].rank != 0) {
+            CHECK(mesma_carta(a->cartas_marcadas[i], b->cartas_marcadas[i]));
+        }
+    }
 }
 
 static void conferir_partidas_iguais(const Partida *a, const Partida *b)
@@ -178,6 +205,8 @@ static void conferir_partidas_iguais(const Partida *a, const Partida *b)
     CHECK(a->adversario_embriagado == b->adversario_embriagado);
     conferir_riscos_iguais(&a->risco, &b->risco);
     CHECK(a->estado_do_risco == b->estado_do_risco);
+    conferir_cheats_iguais(&a->cheats, &b->cheats);
+    conferir_cheats_iguais(&a->cheats_da_mao, &b->cheats_da_mao);
     conferir_riscos_iguais(&a->risco_da_mao, &b->risco_da_mao);
     CHECK(a->estado_do_risco_da_mao == b->estado_do_risco_da_mao);
     CHECK(a->roleta_motivo == b->roleta_motivo);
@@ -239,7 +268,7 @@ static void conferir_salvas_iguais(const PartidaSalva *a, const PartidaSalva *b)
     CHECK(a->estado_das_sementes == b->estado_das_sementes);
     CHECK(a->rng_acao == b->rng_acao);
     CHECK(a->rng_equidade == b->rng_equidade);
-    CHECK(a->adversario_embriagado == b->adversario_embriagado);
+    conferir_cheats_iguais(&a->cheats, &b->cheats);
     conferir_riscos_iguais(&a->risco, &b->risco);
     CHECK(a->estado_do_risco == b->estado_do_risco);
     CHECK(a->situacao == b->situacao);
@@ -403,7 +432,7 @@ static void test_formato_de_texto_vai_e_volta(void)
         tamanho = salvamento_formatar(&guardada, texto, sizeof texto);
         CHECK(tamanho > 0);
         CHECK(strlen(texto) == tamanho);
-        CHECK(strncmp(texto, "DMBSAVE 2\n", 10) == 0);
+        CHECK(strncmp(texto, "DMBSAVE 3\n", 10) == 0);
         CHECK(strcmp(texto + tamanho - 4, "fim\n") == 0);
 
         CHECK(salvamento_interpretar(texto, tamanho, &lida));
@@ -425,6 +454,8 @@ static void test_refazer_a_partida_a_reproduz_e_ela_continua_igual(void)
 
         CHECK(partida_iniciar(&original, semente));
         original.adversario_embriagado = semente % 2 == 0;
+        original.cheats.maos_embriagado = semente % 2 == 0 ? 50 : 0;
+        original.cheats_da_mao = original.cheats;
 
         for (int i = 0; i < passos && !partida_terminou(&original); i++) {
             CHECK(dar_um_passo(&original, politica_aleatoria, &sorteio));
@@ -437,7 +468,8 @@ static void test_refazer_a_partida_a_reproduz_e_ela_continua_igual(void)
         }
 
         conferir_ida_e_volta(&original, &refeita);
-        CHECK(refeita.adversario_embriagado == (semente % 2 == 0));
+        CHECK(refeita.adversario_embriagado == original.adversario_embriagado);
+        CHECK(refeita.adversario_embriagado == (original.cheats.maos_embriagado > 0));
         correr_juntas(&original, &refeita, politica_aleatoria, &sorteio);
         CHECK(partida_terminou(&original) && partida_terminou(&refeita));
         pontos_salvos++;
@@ -703,6 +735,65 @@ static void test_refazer_recusa_dados_adulterados(void)
     ruim.risco.usos_trapaca[PROB_TRAPACA_TOTAL - 1] = PARTIDA_USOS_MAXIMOS + 1;
     conferir_recusa(&ruim);
 
+    /* Estado das trapaças fora do que o jogo produz. */
+    ruim = boa;
+    ruim.cheats.cartas_marcadas[0] = (PokerCard){9, POKER_HEARTS};
+    ruim.cheats.turnos_marcacao[0] = 0;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.cartas_marcadas[0] = (PokerCard){9, POKER_HEARTS};
+    ruim.cheats.turnos_marcacao[0] = PARTIDA_MARCA_DURACAO + 1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.turnos_marcacao[2] = 3;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.carta_na_manga.rank = 0;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.carta_na_manga.rank = 15;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.destino_carta_comprada = 2;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.carta_comprada_pendente = true;
+    ruim.cheats.destino_carta_comprada = 0;
+    ruim.cheats.carta_comprada = (PokerCard){5, POKER_HEARTS};
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.carta_comprada_pendente = true;
+    ruim.cheats.destino_carta_comprada = 1;
+    ruim.cheats.carta_comprada.rank = 0;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.destino_carta_comprada = 1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.carta_comprada = (PokerCard){5, POKER_HEARTS};
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.maos_embriagado = -1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.maos_embriagado = PARTIDA_USOS_MAXIMOS + 1;
+    conferir_recusa(&ruim);
+
+    ruim = boa;
+    ruim.cheats.usos_cumplice_blind = -1;
+    conferir_recusa(&ruim);
+
     ruim = boa;
     ruim.situacao = PARTIDA_JOGADOR_MORTO;
     conferir_recusa(&ruim);
@@ -837,16 +928,17 @@ static void test_cabecalho_e_palavras_erradas_sao_recusados(void)
     static char texto[SALVAMENTO_TAMANHO_MAXIMO];
     static char alterado[SALVAMENTO_TAMANHO_MAXIMO];
     static const char *const TROCAS[][2] = {
-        {"DMBSAVE 2", "DMBSAVE 1"},
-        {"DMBSAVE 2", "DMBSAVE 3"},
-        {"DMBSAVE 2", "dmbsave 2"},
-        {"DMBSAVE 2", "DMBSAVE 0"},
-        {"DMBSAVE 2", "DMBSAVE"},
+        {"DMBSAVE 3", "DMBSAVE 1"},
+        {"DMBSAVE 3", "DMBSAVE 4"},
+        {"DMBSAVE 3", "dmbsave 2"},
+        {"DMBSAVE 3", "DMBSAVE 0"},
+        {"DMBSAVE 3", "DMBSAVE"},
         {"torneio", "torneo"},
         {"mao ", "mao x"},
         {"sementes", "semente"},
         {"ia ", "iaa "},
         {"risco", "riscos"},
+        {"trapacas", "trapaca"},
         {"cartas", "carta"},
         {"board", "borda"},
         {"fichas", "fichs"},
@@ -1055,12 +1147,13 @@ static void test_valores_fora_dos_limites_sao_recusados(void)
 static void test_numeros_malformados_sao_recusados(void)
 {
     static const char *const BASE =
-        "DMBSAVE 2\n"
+        "DMBSAVE 3\n"
         "torneio 0 1990 2010 3 1 0\n"
-        "mao 1234 1 0\n"
+        "mao 1234 1\n"
         "sementes 99\n"
         "ia 5 6\n"
         "risco 2 0 1 0 3 0 77\n"
+        "trapacas 0 0 0 0 2 0 0 -1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
         "cartas 14 3 7 0 2 1 9 2\n"
         "board 0\n"
         "fichas 1990 2010\n"
@@ -1087,6 +1180,13 @@ static void test_numeros_malformados_sao_recusados(void)
         {"acoes 1", "acoes 513"},
         {"2 0\nfim", "2 0 3\nfim"},
         {"2 0\nfim", "7 0\nfim"},
+        {"2 0\nfim", "7 0 0 0 0\nfim"},
+        {"2 0\nfim", "7 8 0 0 0\nfim"},
+        {"2 0\nfim", "7 1 2 0 0\nfim"},
+        {"2 0\nfim", "7 1 0 1 0\nfim"},
+        {"2 0\nfim", "7 1 0 15 0\nfim"},
+        {"2 0\nfim", "7 1 0 5 4\nfim"},
+        {"2 0\nfim", "7 1 0 0\nfim"},
         {"2 0\nfim", "6 5\nfim"},
         {"2 0\nfim", "6\nfim"},
         {"risco 2 0", "risco 0 0"},
@@ -1097,10 +1197,28 @@ static void test_numeros_malformados_sao_recusados(void)
         {"0 3 0 77", "0 3 77"},
         {"0 3 0 77", "0 3 0 -77"},
         {"0 3 0 77", "0 3 0 77 8"},
-        {"mao 1234 1 0", "mao 1234 5 0"},
-        {"mao 1234 1 0", "mao 1234 6 0"},
-        {"mao 1234 1 0", "mao 1234 8 0"},
-        {"mao 1234 1 0", "mao 1234 9 0"},
+        {"mao 1234 1", "mao 1234 5"},
+        {"mao 1234 1", "mao 1234 6"},
+        {"mao 1234 1", "mao 1234 8"},
+        {"mao 1234 1", "mao 1234 9"},
+        {"mao 1234 1", "mao 1234 1 0"},
+        {"trapacas 0 0 0 0", "trapacas 1000001 0 0 0"},
+        {"trapacas 0 0 0 0", "trapacas -1 0 0 0"},
+        {"trapacas 0 0 0 0", "trapacas 0 1000001 0 0"},
+        {"trapacas 0 0 0 0", "trapacas 0 0 2 0"},
+        {"trapacas 0 0 0 0", "trapacas 0 0 0 2"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 1 0 0 -1 0 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 2 4 0 -1 0 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 0 0 0 -1 0 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 2 0 2 -1 0 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 2 0 0 -2 0 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 2 0 0 2 0 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 2 0 0 -1 1 0"},
+        {"0 0 0 0 2 0 0 -1 0 0", "0 0 0 0 2 0 0 -1 0 4"},
+        {"0 0 0 0 2 0 0 -1 0 0 0 0 0", "0 0 0 0 2 0 0 -1 0 0 9 1 0"},
+        {"0 0 0 0 2 0 0 -1 0 0 0 0 0", "0 0 0 0 2 0 0 -1 0 0 0 0 1"},
+        {"0 0 0 0 2 0 0 -1 0 0 0 0 0", "0 0 0 0 2 0 0 -1 0 0 9 1 6"},
+        {"0 0 0 0 2 0 0 -1 0 0 0 0 0", "0 0 0 0 2 0 0 -1 0 0 9 5 3"},
         {"sementes 99", "sementes 1234567890123456789012345678901"},
         {"sementes 99", "sementes 12345678901234567890123456789012"},
         {"sementes 99", "sementes 1234567890123456789012345678901234567890123456789012345678901234"},
@@ -1116,11 +1234,16 @@ static void test_numeros_malformados_sao_recusados(void)
         {"board 0", "board 5 2 0 3 0 4 0 5 0 6 0"},
         {"mao 1234", "mao 4294967295"},
         {"sementes 99", "sementes 18446744073709551615"},
+        {"trapacas 0 0 0 0 2 0 0 -1 0 0", "trapacas 1000000 1000000 1 1 14 3 1 1 14 3"},
+        {"0 0 0 0 2 0 0 -1 0 0 0 0 0", "0 0 0 0 2 0 0 -1 0 0 9 1 5"},
+        {"0 0 0 0 2 0 0 -1 0 0 0 0 0", "0 0 0 0 2 0 0 -1 0 0 0 3 0"},
+        {"2 0\nfim", "7 4 1 9 2\nfim"},
+        {"2 0\nfim", "7 1 0 0 0\nfim"},
         {"2 0\nfim", "6 0\nfim"},
         {"2 0\nfim", "5 0\nfim"},
         {"risco 2 0 1 0 3 0 77", "risco 6 1000000 1000000 0 0 0 18446744073709551615"},
         {"risco 2 0 1 0 3 0 77", "risco 1 0 0 0 0 0 0"},
-        {"mao 1234 1 0", "mao 1234 7 0"}
+        {"mao 1234 1", "mao 1234 7"}
     };
     PartidaSalva lida;
 
@@ -1128,7 +1251,9 @@ static void test_numeros_malformados_sao_recusados(void)
     CHECK(lida.torneio.fichas_jogador == 1990 && lida.torneio.fichas_adversario == 2010);
     CHECK(lida.semente_da_mao == 1234 && lida.estado_das_sementes == 99);
     CHECK(lida.rng_acao == 5 && lida.rng_equidade == 6);
-    CHECK(lida.situacao == PARTIDA_VEZ_DO_JOGADOR && !lida.adversario_embriagado);
+    CHECK(lida.situacao == PARTIDA_VEZ_DO_JOGADOR);
+    CHECK(lida.cheats.maos_embriagado == 0 && lida.cheats.destino_carta_comprada == -1);
+    CHECK(mesma_carta(lida.cheats.carta_na_manga, (PokerCard){2, POKER_CLUBS}));
     CHECK(lida.risco.balas_roleta == 2 && lida.estado_do_risco == 77);
     CHECK(lida.risco.usos_trapaca[0] == 0 && lida.risco.usos_trapaca[1] == 1);
     CHECK(lida.risco.usos_trapaca[2] == 0 && lida.risco.usos_trapaca[3] == 3);
@@ -1200,7 +1325,7 @@ static void test_numeros_malformados_sao_recusados(void)
     }
 
     {
-        char sem_dados[sizeof "DMBSAVE 2\nfim\n"] = "DMBSAVE 2\nfim\n";
+        char sem_dados[sizeof "DMBSAVE 3\nfim\n"] = "DMBSAVE 3\nfim\n";
 
         CHECK(!salvamento_interpretar(sem_dados, sizeof sem_dados - 1, &lida));
         CHECK(!salvamento_interpretar("", 0, &lida));
@@ -1345,7 +1470,7 @@ static void test_arquivo_estragado_e_reconhecido(void)
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 2\ntorneio 0 1 2\n", arquivo);
+    fputs("DMBSAVE 3\ntorneio 0 1 2\n", arquivo);
     fclose(arquivo);
     CHECK(salvamento_existe(ARQUIVO_DE_TESTE));
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
@@ -1358,13 +1483,13 @@ static void test_arquivo_estragado_e_reconhecido(void)
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 3\n", arquivo);
+    fputs("DMBSAVE 4\n", arquivo);
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 2 extra\n", arquivo);
+    fputs("DMBSAVE 3 extra\n", arquivo);
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
@@ -1375,7 +1500,7 @@ static void test_arquivo_estragado_e_reconhecido(void)
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
 
     memset(grande, ' ', sizeof grande);
-    memcpy(grande, "DMBSAVE 2\n", 10);
+    memcpy(grande, "DMBSAVE 3\n", 10);
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
     fwrite(grande, 1, sizeof grande, arquivo);
@@ -1384,6 +1509,50 @@ static void test_arquivo_estragado_e_reconhecido(void)
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
 
     salvamento_apagar(ARQUIVO_DE_TESTE);
+}
+
+static void test_todos_os_campos_das_trapacas_vao_e_voltam_pelo_texto(void)
+{
+    static char texto[SALVAMENTO_TAMANHO_MAXIMO];
+    PartidaSalva guardada;
+    PartidaSalva lida;
+
+    CHECK(texto_de_exemplo(texto, sizeof texto, &guardada) > 0);
+    guardada.cheats.maos_embriagado = 7;
+    guardada.cheats.usos_cumplice_blind = 3;
+    guardada.cheats.suborno_usado_na_mao = true;
+    guardada.cheats.as_na_manga_usado = true;
+    guardada.cheats.carta_na_manga = (PokerCard){14, POKER_SPADES};
+    guardada.cheats.carta_comprada_pendente = true;
+    guardada.cheats.destino_carta_comprada = 1;
+    guardada.cheats.carta_comprada = (PokerCard){9, POKER_HEARTS};
+
+    for (int i = 0; i < 5; i++) {
+        guardada.cheats.cartas_marcadas[i] = (PokerCard){3 + i, (PokerSuit)(i % 4)};
+        guardada.cheats.turnos_marcacao[i] = 1 + i % PARTIDA_MARCA_DURACAO;
+    }
+
+    guardada.registro[0] = (RegistroDaMao){.tipo = REGISTRO_TRAPACA,
+                                           .pedido = {PEDIDO_SUBORNO_MAO, 1, {12, POKER_SPADES}}};
+    guardada.registro[1] = (RegistroDaMao){.tipo = REGISTRO_GATILHO};
+    guardada.quantidade_no_registro = 2;
+
+    CHECK(salvamento_formatar(&guardada, texto, sizeof texto) > 0);
+    CHECK(salvamento_interpretar(texto, strlen(texto), &lida));
+    conferir_cheats_iguais(&guardada.cheats, &lida.cheats);
+    CHECK(lida.cheats.suborno_usado_na_mao && lida.cheats.as_na_manga_usado);
+    CHECK(lida.cheats.carta_comprada_pendente && lida.cheats.destino_carta_comprada == 1);
+    CHECK(mesma_carta(lida.cheats.carta_comprada, (PokerCard){9, POKER_HEARTS}));
+    CHECK(mesma_carta(lida.cheats.carta_na_manga, (PokerCard){14, POKER_SPADES}));
+
+    for (int i = 0; i < 5; i++) {
+        CHECK(mesma_carta(lida.cheats.cartas_marcadas[i], guardada.cheats.cartas_marcadas[i]));
+    }
+
+    CHECK(lida.quantidade_no_registro == 2);
+    conferir_registros_iguais(&guardada.registro[0], &lida.registro[0]);
+    conferir_registros_iguais(&guardada.registro[1], &lida.registro[1]);
+    CHECK(lida.registro[0].pedido.tipo == PEDIDO_SUBORNO_MAO && lida.registro[0].pedido.carta_da_mao == 1);
 }
 
 /** Leva a partida original até a roleta de falência; false se a semente não faliu o jogador. */
@@ -1449,10 +1618,20 @@ static void test_partida_refeita_pode_ser_liberada_e_reusada(void)
     PartidaSalva guardada;
     unsigned sorteio = 17;
 
-    CHECK(partida_iniciar(&original, 21));
+    /* Uma semente cuja partida não acabe nos primeiros passos, qualquer que seja o rand do sistema. */
+    for (unsigned semente = 21; semente < 120; semente++) {
+        sorteio = 17;
+        CHECK(partida_iniciar(&original, semente));
 
-    for (int i = 0; i < 12 && !partida_terminou(&original); i++) {
-        CHECK(dar_um_passo(&original, politica_aleatoria, &sorteio));
+        for (int i = 0; i < 12 && !partida_terminou(&original); i++) {
+            CHECK(dar_um_passo(&original, politica_aleatoria, &sorteio));
+        }
+
+        if (!partida_terminou(&original)) {
+            break;
+        }
+
+        partida_encerrar(&original);
     }
 
     CHECK(!partida_terminou(&original));
@@ -1491,6 +1670,7 @@ int main(void)
     test_arquivo_grava_le_e_apaga();
     test_arquivo_estragado_e_reconhecido();
     test_a_roleta_e_o_gatilho_vao_e_voltam();
+    test_todos_os_campos_das_trapacas_vao_e_voltam_pelo_texto();
     test_partida_refeita_pode_ser_liberada_e_reusada();
     puts("OK: salvamento (texto, arquivo, refazer a partida em cada situacao e continuar igual ate o fim do torneio).");
     return EXIT_SUCCESS;

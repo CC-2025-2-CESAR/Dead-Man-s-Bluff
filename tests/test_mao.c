@@ -687,6 +687,254 @@ static void jogar_mao_aleatoria(Mao *mao, unsigned *semente)
     CHECK(mao->situacao != MAO_EM_ANDAMENTO);
 }
 
+static bool iniciar_com_semente(Mao *mao, unsigned semente, const MaoAjustes *ajustes, FilaEventos *fila)
+{
+    Torneio torneio;
+
+    torneio_iniciar(&torneio);
+    srand(semente);
+    return mao_iniciar_com_ajustes(mao, &torneio, fila, ajustes);
+}
+
+/** Esvazia o baralho da mão e devolve a primeira e a última carta que ele daria. */
+static void primeira_e_ultima_do_baralho(Mao *mao, PokerCard *primeira, PokerCard *ultima)
+{
+    PokerCard carta;
+    size_t total = mao->baralho.count;
+
+    CHECK(total > 2);
+
+    for (size_t i = 0; i < total; i++) {
+        CHECK(deck_draw(&mao->baralho, &carta));
+
+        if (i == 0) {
+            *primeira = carta;
+        }
+    }
+
+    *ultima = carta;
+}
+
+/** Faz o jogador pagar e o adversário passar, o que leva o pré-flop ao flop. */
+static void ir_ao_flop(Mao *mao)
+{
+    CHECK(mao->mesa.actor == TORNEIO_ASSENTO_JOGADOR);
+    CHECK(mao_agir(mao, PAGAR) == POKER_OK);
+    CHECK(mao_agir(mao, PASSAR) == POKER_OK);
+    CHECK(mao->cartas_no_board == 3 && mao->situacao == MAO_EM_ANDAMENTO);
+}
+
+static void test_carta_reservada_fica_fora_do_baralho_e_da_mesa(void)
+{
+    MaoAjustes ajustes = {.reservar_carta = true, .carta_reservada = {2, POKER_CLUBS}};
+    PokerCard invalida = {1, POKER_CLUBS};
+
+    for (unsigned semente = 1; semente <= SEMENTES; semente++) {
+        Mao mao = {0};
+        unsigned sorteio = semente * 7u;
+
+        CHECK(iniciar_com_semente(&mao, semente, &ajustes, NULL));
+        CHECK(mao.baralho.count == 47);
+        CHECK(!deck_contains(&mao.baralho, ajustes.carta_reservada));
+        CHECK(cartas_distintas(&mao));
+
+        jogar_mao_aleatoria(&mao, &sorteio);
+        CHECK(mao.situacao == MAO_ENCERRADA);
+        CHECK(cartas_distintas(&mao));
+
+        for (int assento = 0; assento < 2; assento++) {
+            for (int i = 0; i < 2; i++) {
+                CHECK(!mesma_carta(mao.cartas[assento][i], ajustes.carta_reservada));
+            }
+        }
+
+        for (size_t i = 0; i < mao.cartas_no_board; i++) {
+            CHECK(!mesma_carta(mao.board[i], ajustes.carta_reservada));
+        }
+
+        mao_liberar(&mao);
+    }
+
+    {
+        Mao mao = {0};
+
+        ajustes.carta_reservada = invalida;
+        CHECK(!iniciar_com_semente(&mao, 1, &ajustes, NULL));
+        CHECK(mao.situacao == MAO_VAZIA && mao.baralho.head == NULL);
+        ajustes.reservar_carta = false;
+        CHECK(iniciar_com_semente(&mao, 1, &ajustes, NULL));
+        CHECK(mao.baralho.count == 48);
+        mao_liberar(&mao);
+    }
+}
+
+static void test_carta_dada_ao_jogador_troca_a_primeira_carta_dele(void)
+{
+    for (unsigned semente = 1; semente <= SEMENTES; semente++) {
+        Mao referencia = {0};
+        Mao mao = {0};
+        MaoAjustes ajustes = {.dar_carta_ao_jogador = true};
+        FilaEventos fila;
+        EventoJogo evento;
+        PokerCard primeira;
+        PokerCard ultima;
+        PokerCard antiga;
+        bool achou_evento = false;
+
+        CHECK(iniciar_com_semente(&referencia, semente, NULL, NULL));
+        antiga = referencia.cartas[TORNEIO_ASSENTO_JOGADOR][0];
+        primeira_e_ultima_do_baralho(&referencia, &primeira, &ultima);
+
+        /* A carta do fundo do baralho nunca foi dada: a troca funciona. */
+        ajustes.carta_para_o_jogador = ultima;
+        fila_eventos_iniciar(&fila);
+        CHECK(iniciar_com_semente(&mao, semente, &ajustes, &fila));
+        CHECK(mao.carta_do_jogador == MAO_AJUSTE_APLICADO);
+        CHECK(mesma_carta(mao.cartas[TORNEIO_ASSENTO_JOGADOR][0], ultima));
+        CHECK(mesma_carta(mao.cartas[TORNEIO_ASSENTO_JOGADOR][1], referencia.cartas[TORNEIO_ASSENTO_JOGADOR][1]));
+        CHECK(mesma_carta(mao.cartas[TORNEIO_ASSENTO_ADVERSARIO][0], referencia.cartas[TORNEIO_ASSENTO_ADVERSARIO][0]));
+        CHECK(mesma_carta(mao.cartas[TORNEIO_ASSENTO_ADVERSARIO][1], referencia.cartas[TORNEIO_ASSENTO_ADVERSARIO][1]));
+        CHECK(cartas_distintas(&mao));
+        CHECK(mao.baralho.count == 48);
+        CHECK(!deck_contains(&mao.baralho, ultima));
+        CHECK(deck_contains(&mao.baralho, antiga));
+
+        while (fila_eventos_retirar(&fila, &evento)) {
+            if (evento.tipo == EVENTO_CARTAS_DISTRIBUIDAS &&
+                evento.cartas_distribuidas.assento == TORNEIO_ASSENTO_JOGADOR) {
+                CHECK(mesma_carta(evento.cartas_distribuidas.cartas[0], ultima));
+                achou_evento = true;
+            }
+        }
+
+        CHECK(achou_evento);
+        mao_liberar(&mao);
+
+        /* Pedir a carta que ele ja ia receber conta como feito, sem trocar nada. */
+        ajustes.carta_para_o_jogador = antiga;
+        CHECK(iniciar_com_semente(&mao, semente, &ajustes, NULL));
+        CHECK(mao.carta_do_jogador == MAO_AJUSTE_APLICADO);
+        CHECK(mesma_carta(mao.cartas[TORNEIO_ASSENTO_JOGADOR][0], antiga));
+        CHECK(mao.baralho.count == 48 && cartas_distintas(&mao));
+        mao_liberar(&mao);
+
+        /* A carta do adversario ja saiu do baralho: a troca falha e nada muda. */
+        ajustes.carta_para_o_jogador = referencia.cartas[TORNEIO_ASSENTO_ADVERSARIO][0];
+        CHECK(iniciar_com_semente(&mao, semente, &ajustes, NULL));
+        CHECK(mao.carta_do_jogador == MAO_AJUSTE_FALHOU);
+        CHECK(mesma_carta(mao.cartas[TORNEIO_ASSENTO_JOGADOR][0], antiga));
+        CHECK(mao.baralho.count == 48);
+        mao_liberar(&mao);
+
+        /* Sem pedido, o resultado fica neutro. */
+        CHECK(iniciar_com_semente(&mao, semente, NULL, NULL));
+        CHECK(mao.carta_do_jogador == MAO_AJUSTE_NENHUM);
+        mao_liberar(&mao);
+    }
+}
+
+static void test_carta_forcada_entra_como_primeira_da_proxima_rua(void)
+{
+    for (unsigned semente = 1; semente <= SEMENTES; semente++) {
+        Mao referencia = {0};
+        Mao mao = {0};
+        FilaEventos fila;
+        EventoJogo evento;
+        PokerCard primeira;
+        PokerCard ultima;
+        PokerCard original;
+        bool achou_evento = false;
+
+        CHECK(iniciar_com_semente(&referencia, semente, NULL, NULL));
+        ir_ao_flop(&referencia);
+        original = referencia.board[0];
+        mao_liberar(&referencia);
+
+        CHECK(iniciar_com_semente(&referencia, semente, NULL, NULL));
+        primeira_e_ultima_do_baralho(&referencia, &primeira, &ultima);
+
+        /* A carta do fundo do baralho sobrevive ate o flop: entra como a primeira do board. */
+        fila_eventos_iniciar(&fila);
+        CHECK(iniciar_com_semente(&mao, semente, NULL, &fila));
+        CHECK(mao_forcar_proxima_carta_do_board(&mao, ultima));
+        CHECK(mao.carta_forcada_pendente);
+        CHECK(!mao_forcar_proxima_carta_do_board(&mao, ultima));
+        ir_ao_flop(&mao);
+        CHECK(!mao.carta_forcada_pendente);
+        CHECK(mao.carta_forcada_resultado == MAO_AJUSTE_APLICADO);
+        CHECK(mesma_carta(mao.board[0], ultima));
+        CHECK(cartas_distintas(&mao));
+        CHECK(!deck_contains(&mao.baralho, ultima));
+        CHECK(deck_contains(&mao.baralho, original));
+        CHECK(mao.baralho.count == 44);
+
+        while (fila_eventos_retirar(&fila, &evento)) {
+            if (evento.tipo == EVENTO_BOARD_REVELADO && evento.board.rua == POKER_FLOP) {
+                CHECK(mesma_carta(evento.board.cartas[0], ultima));
+                achou_evento = true;
+            }
+        }
+
+        CHECK(achou_evento);
+
+        /* Depois do flop vale de novo, para o turn; no river nao ha mais rua. */
+        CHECK(mao_forcar_proxima_carta_do_board(&mao, original));
+        CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
+        CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
+        CHECK(mao.cartas_no_board == 4 && mao.carta_forcada_resultado == MAO_AJUSTE_APLICADO);
+        CHECK(mesma_carta(mao.board[3], original));
+        CHECK(cartas_distintas(&mao));
+        CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
+        CHECK(mao_agir(&mao, PASSAR) == POKER_OK);
+        CHECK(mao.cartas_no_board == 5);
+        CHECK(!mao_forcar_proxima_carta_do_board(&mao, ultima));
+        mao_liberar(&mao);
+        mao_liberar(&referencia);
+
+        /* Pedir a carta que já ia sair como a primeira do flop conta como feito. */
+        CHECK(iniciar_com_semente(&mao, semente, NULL, NULL));
+        CHECK(mao_forcar_proxima_carta_do_board(&mao, original));
+        ir_ao_flop(&mao);
+        CHECK(mao.carta_forcada_resultado == MAO_AJUSTE_APLICADO);
+        CHECK(mesma_carta(mao.board[0], original));
+        CHECK(cartas_distintas(&mao));
+        CHECK(mao.baralho.count == 44);
+        mao_liberar(&mao);
+
+        /* A carta do topo e queimada: o pedido falha e o board sai como seria. */
+        CHECK(iniciar_com_semente(&mao, semente, NULL, NULL));
+        CHECK(mao_forcar_proxima_carta_do_board(&mao, primeira));
+        ir_ao_flop(&mao);
+        CHECK(mao.carta_forcada_resultado == MAO_AJUSTE_FALHOU);
+        CHECK(!mao.carta_forcada_pendente);
+        CHECK(mesma_carta(mao.board[0], original));
+        CHECK(cartas_distintas(&mao));
+        mao_liberar(&mao);
+    }
+}
+
+static void test_carta_forcada_recusa_pedidos_invalidos(void)
+{
+    Mao mao = {0};
+    Mao vazia = {0};
+
+    CHECK(!mao_forcar_proxima_carta_do_board(NULL, (PokerCard){5, POKER_HEARTS}));
+    CHECK(!mao_forcar_proxima_carta_do_board(&vazia, (PokerCard){5, POKER_HEARTS}));
+
+    CHECK(iniciar_com_semente(&mao, 3, NULL, NULL));
+    CHECK(!mao_forcar_proxima_carta_do_board(&mao, (PokerCard){1, POKER_HEARTS}));
+    CHECK(!mao_forcar_proxima_carta_do_board(&mao, (PokerCard){15, POKER_HEARTS}));
+    CHECK(!mao_forcar_proxima_carta_do_board(&mao, (PokerCard){5, (PokerSuit)4}));
+    CHECK(!mao_forcar_proxima_carta_do_board(&mao, (PokerCard){5, (PokerSuit)-1}));
+    CHECK(!mao.carta_forcada_pendente);
+    CHECK(mao_forcar_proxima_carta_do_board(&mao, (PokerCard){5, POKER_HEARTS}));
+
+    CHECK(mao_agir(&mao, DESISTIR) == POKER_OK);
+    CHECK(mao.situacao == MAO_ENCERRADA);
+    CHECK(!mao_forcar_proxima_carta_do_board(&mao, (PokerCard){6, POKER_HEARTS}));
+    mao_liberar(&mao);
+}
+
 static void test_torneio_completo_com_acoes_aleatorias(void)
 {
     int confrontos_vencidos = 0;
@@ -762,7 +1010,11 @@ int main(void)
     test_cartas_ordenadas_com_mao_invalida_nao_vaza();
     test_mao_registra_as_acoes_aplicadas();
     test_mao_avisa_quando_as_acoes_passam_do_limite();
+    test_carta_reservada_fica_fora_do_baralho_e_da_mesa();
+    test_carta_dada_ao_jogador_troca_a_primeira_carta_dele();
+    test_carta_forcada_entra_como_primeira_da_proxima_rua();
+    test_carta_forcada_recusa_pedidos_invalidos();
     test_torneio_completo_com_acoes_aleatorias();
-    puts("OK: mao completa com baralho, motor e torneio (desistencia, river, all-in em cada rua, stacks curtos e torneios inteiros).");
+    puts("OK: mao completa com baralho, motor e torneio (desistencia, river, all-in em cada rua, stacks curtos, ajustes de carta e torneios inteiros).");
     return EXIT_SUCCESS;
 }
