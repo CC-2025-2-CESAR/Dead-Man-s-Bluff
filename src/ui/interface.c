@@ -998,21 +998,12 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
 }
 
 /**
- * Diz, ao lado do nome do adversário, como ele joga esta mão quando o estilo
- * dele mudou em relação ao de base (por exemplo " (joga medroso)"). Devolve
- * texto vazio se o estilo é o de sempre.
+ * Escreve, ao lado do nome do adversário, o comportamento dele nesta mão:
+ * " (agressivo)", " (medroso)" ou " (desconfiado)".
  */
-static void texto_da_mudanca_de_estilo(const Partida *partida, char *out, size_t tamanho)
+static void texto_do_comportamento(const Partida *partida, char *out, size_t tamanho)
 {
-    Torneio base = partida->torneio_da_mao;
     const char *nome;
-
-    base.fichas_adversario = torneio_fichas_iniciais_adversario(base.confronto);
-    out[0] = '\0';
-
-    if (partida->ia.style == partida_estilo_do_adversario(&base)) {
-        return;
-    }
 
     switch (partida->ia.style) {
         case POKER_AI_AGGRESSIVE:
@@ -1024,11 +1015,11 @@ static void texto_da_mudanca_de_estilo(const Partida *partida, char *out, size_t
             break;
 
         default:
-            nome = "equilibrado";
+            nome = "desconfiado";
             break;
     }
 
-    snprintf(out, tamanho, " (joga %s)", nome);
+    snprintf(out, tamanho, " (%s)", nome);
 }
 
 /** Desenha uma linha de texto simples e desce a posição vertical. */
@@ -1295,7 +1286,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         terminar_desenho();
         return;
     }
-    texto_da_mudanca_de_estilo(partida, estilo_da_mao, sizeof estilo_da_mao);
+    texto_do_comportamento(partida, estilo_da_mao, sizeof estilo_da_mao);
     snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s%s     MÃO %d     BLINDS %lld/%lld",
              partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
              partida_nome_do_adversario(partida->torneio.confronto),

@@ -6,7 +6,7 @@ Pôquer Texas Hold'em single-player em que trapacear faz parte da estratégia, d
 
 ## Sobre o jogo
 
-O jogo é Texas Hold'em **1 contra 1 (heads-up)**. O jogador enfrenta três oponentes em um **torneio** de três confrontos. Cada oponente começa jogando normal e muda de estilo (medroso ou agressivo) conforme as fichas durante o confronto. Ele começa com 2.000 fichas e leva o saldo de um confronto para o seguinte, enquanto os adversários entram com 2.000, 4.000 e 8.000 fichas. Os blinds sobem a cada poucas mãos para a partida não se arrastar e recomeçam em cada confronto.
+O jogo é Texas Hold'em **1 contra 1 (heads-up)**. O jogador enfrenta três oponentes em um **torneio** de três confrontos. Os oponentes não têm um estilo fixo: durante o confronto cada um alterna entre agressivo, medroso e desconfiado conforme as fichas, e todos começam desconfiados. Ele começa com 2.000 fichas e leva o saldo de um confronto para o seguinte, enquanto os adversários entram com 2.000, 4.000 e 8.000 fichas. Os blinds sobem a cada poucas mãos para a partida não se arrastar e recomeçam em cada confronto.
 
 Ganhar as mãos importa, mas o desafio é sobreviver às consequências de trapacear: a **suspeita** de cada adversário e a **roleta russa**, acionada quando o jogador é descoberto ou perde todas as fichas.
 

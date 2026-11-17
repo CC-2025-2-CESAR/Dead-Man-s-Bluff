@@ -44,7 +44,7 @@ static unsigned proximo_aleatorio(unsigned *semente)
 }
 
 /**
- * O estilo que a IA deve ter numa mão: normal, medroso se o adversário está
+ * O estilo que a IA deve ter numa mão: desconfiado (equilibrado), medroso se o adversário está
  * com poucas fichas e agressivo se está com muitas, em relação às que trouxe
  * para o confronto. Escrito à parte da implementação, em outra forma (razão em
  * vez de produto cruzado), para que o teste não repita o que ela faz.
@@ -998,7 +998,7 @@ static PokerAIDecisionInfo jogar_ate_a_ia_decidir(Partida *partida)
 
 static void test_o_estilo_do_adversario_depende_das_fichas(void)
 {
-    /* Os três oponentes seguem a mesma regra: normais, e o estilo só muda com as fichas. */
+    /* Os três oponentes seguem a mesma regra: começam desconfiados e só mudam com as fichas. */
     for (int confronto = 0; confronto < TORNEIO_CONFRONTOS; confronto++) {
         PokerChips inicial = torneio_fichas_iniciais_adversario(confronto);
         PokerChips atras = inicial * PARTIDA_ESTILO_ATRAS_PCT / 100;
@@ -1056,7 +1056,7 @@ static void test_o_estilo_muda_entre_maos_e_a_ia_joga_com_ele(void)
     CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
     CHECK(partida.ia.style == POKER_AI_CAUTIOUS);
 
-    /* Com as fichas de volta ao ponto de partida, a mão seguinte é normal de novo. */
+    /* Com as fichas de volta ao ponto de partida, a mão seguinte é desconfiada de novo. */
     total = partida.torneio.fichas_jogador + partida.torneio.fichas_adversario;
     partida.torneio.fichas_adversario = total / 2;
     partida.torneio.fichas_jogador = total - total / 2;

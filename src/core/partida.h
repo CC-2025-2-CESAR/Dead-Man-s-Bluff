@@ -402,8 +402,8 @@ PokerStatus partida_acoes_legais(const Partida *partida, PokerLegalActions *out)
 
 /**
  * Dá o nome (provisório) do adversário de um confronto: Oponente 1, 2 ou 3.
- * O nome não diz como ele joga, porque o estilo muda durante o confronto
- * (ver partida_estilo_do_adversario).
+ * O nome não diz como ele joga, porque o comportamento muda durante o
+ * confronto (ver partida_estilo_do_adversario).
  *
  * @param confronto índice do confronto, de 0 a TORNEIO_CONFRONTOS - 1.
  * @return o nome, ou "?" se o índice for inválido.
@@ -412,12 +412,13 @@ const char *partida_nome_do_adversario(int confronto);
 
 /**
  * Diz como o adversário joga a mão que começa com o torneio neste estado.
- * Todo oponente começa o confronto jogando normal (equilibrado) e muda de
- * estilo conforme as fichas que tem em relação às que trouxe para o confronto:
+ * Todo oponente alterna entre os mesmos três comportamentos, conforme as
+ * fichas que tem em relação às que trouxe para o confronto, e começa o
+ * confronto desconfiado:
  *
- * - perdendo (PARTIDA_ESTILO_ATRAS_PCT ou menos): joga medroso;
- * - ganhando (PARTIDA_ESTILO_FRENTE_PCT ou mais): joga agressivo;
- * - no meio: joga normal.
+ * - perdendo (PARTIDA_ESTILO_ATRAS_PCT ou menos): medroso (POKER_AI_CAUTIOUS);
+ * - ganhando (PARTIDA_ESTILO_FRENTE_PCT ou mais): agressivo (POKER_AI_AGGRESSIVE);
+ * - no meio: desconfiado (POKER_AI_BALANCED, o jogo equilibrado).
  *
  * Depende só do torneio, que o salvamento já guarda no começo da mão; por
  * isso o estilo se refaz ao continuar sem entrar no arquivo. O estilo vale
