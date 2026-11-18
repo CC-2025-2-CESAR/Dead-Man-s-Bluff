@@ -412,11 +412,28 @@ void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe)
     terminar_desenho();
 }
 
-EntradaConfiguracoes interface_configuracoes_ler_entrada(void)
+#define BOTAO_VOLUME 120
+
+static int volume_arrastado = -1;
+
+/** Barra de volume no espaço livre à esquerda da lista de resoluções. */
+static Rectangle area_do_volume(int canal)
 {
-    EntradaConfiguracoes entrada = {0, false, false, -1};
+    return (Rectangle){ 50.0f, 323.0f + canal * 84.0f, 160.0f, 8.0f };
+}
+
+static bool tecla_de_volume(int tecla)
+{
+    return IsKeyPressed(tecla) || IsKeyPressedRepeat(tecla);
+}
+
+EntradaConfiguracoes interface_configuracoes_ler_entrada(int selecionada)
+{
+    EntradaConfiguracoes entrada = {0, false, false, -1, -1, -1, 0};
     int apontada = botao_sob_o_mouse();
     int clicada = botao_clicado();
+    int total = RESOLUCOES_TOTAL + VOLUMES_TOTAL;
+    int foco;
 
     if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
         entrada.movimento = 1;
@@ -429,12 +446,48 @@ EntradaConfiguracoes interface_configuracoes_ler_entrada(void)
 
     if (mouse_se_moveu() && apontada >= BOTAO_RESOLUCAO && apontada < BOTAO_RESOLUCAO + RESOLUCOES_TOTAL)
         entrada.apontada = apontada - BOTAO_RESOLUCAO;
+    else if (mouse_se_moveu() && apontada >= BOTAO_VOLUME && apontada < BOTAO_VOLUME + VOLUMES_TOTAL)
+        entrada.apontada = RESOLUCOES_TOTAL + apontada - BOTAO_VOLUME;
 
     if (clicada >= BOTAO_RESOLUCAO && clicada < BOTAO_RESOLUCAO + RESOLUCOES_TOTAL) {
         entrada.apontada = clicada - BOTAO_RESOLUCAO;
         entrada.confirmar = true;
     } else if (clicada == BOTAO_VOLTAR_CONFIGURACOES) {
         entrada.voltar = true;
+    } else if (clicada >= BOTAO_VOLUME && clicada < BOTAO_VOLUME + VOLUMES_TOTAL) {
+        volume_arrastado = clicada - BOTAO_VOLUME;
+    }
+
+    if (entrada.voltar || !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        volume_arrastado = -1;
+    }
+    if (volume_arrastado >= 0) {
+        Rectangle barra = area_do_volume(volume_arrastado);
+        float proporcao = (posicao_do_mouse().x - barra.x) / barra.width;
+
+        if (proporcao < 0.0f) proporcao = 0.0f;
+        if (proporcao > 1.0f) proporcao = 1.0f;
+        entrada.apontada = RESOLUCOES_TOTAL + volume_arrastado;
+        entrada.canal_volume = volume_arrastado;
+        entrada.volume = (int)(proporcao * 100.0f + 0.5f);
+        entrada.movimento = 0;
+        entrada.ajuste_volume = 0;
+        entrada.confirmar = false;
+    }
+
+    foco = entrada.apontada >= 0 ? entrada.apontada : selecionada;
+    foco = (foco + entrada.movimento + total) % total;
+    if (foco >= RESOLUCOES_TOTAL) {
+        entrada.confirmar = false;
+        if (volume_arrastado < 0) {
+            if (tecla_de_volume(KEY_LEFT) || tecla_de_volume(KEY_MINUS) || tecla_de_volume(KEY_KP_SUBTRACT)) {
+                entrada.ajuste_volume = -5;
+            } else if (tecla_de_volume(KEY_RIGHT) || tecla_de_volume(KEY_EQUAL) || tecla_de_volume(KEY_KP_ADD)) {
+                entrada.ajuste_volume = 5;
+            }
+            if (entrada.ajuste_volume != 0)
+                entrada.canal_volume = foco - RESOLUCOES_TOTAL;
+        }
     }
 
     return entrada;
@@ -448,6 +501,35 @@ static void rotulo_da_resolucao(Resolucao resolucao, char *saida, size_t tamanho
     } else {
         snprintf(saida, tamanho, "%d x %d", resolucao.largura, resolucao.altura);
     }
+}
+
+static void desenhar_volumes(const Configuracoes *configuracoes, int selecionada)
+{
+    static const char *rotulos[VOLUMES_TOTAL] = { "GERAL", "SFX", "MÚSICA" };
+
+    DrawText("SOM", 50, 250, 28, COR_OURO);
+    for (int canal = 0; canal < VOLUMES_TOTAL; canal++) {
+        Rectangle barra = area_do_volume(canal);
+        int volume = configuracoes_volume(configuracoes, (CanalVolume)canal);
+        bool destacada = selecionada == RESOLUCOES_TOTAL + canal;
+        Color cor = destacada ? COR_OURO : COR_TEXTO;
+        float preenchido = barra.width * volume / 100.0f;
+        const char *valor = TextFormat("%d", volume);
+
+        DrawText(rotulos[canal], (int)barra.x, (int)barra.y - 31, 22, cor);
+        DrawText(valor, (int)(barra.x + barra.width) - MeasureText(valor, 22),
+                 (int)barra.y - 31, 22, cor);
+        DrawRectangleRec(barra, COR_FUNDO_CLARO);
+        DrawRectangleRec((Rectangle){barra.x, barra.y, preenchido, barra.height}, COR_OURO);
+        DrawCircleV((Vector2){barra.x + preenchido, barra.y + barra.height / 2.0f},
+                    destacada ? 9.0f : 7.0f, cor);
+        DrawText("0", (int)barra.x, (int)barra.y + 15, 16, COR_TEXTO_SUAVE);
+        DrawText("100", (int)(barra.x + barra.width) - MeasureText("100", 16),
+                 (int)barra.y + 15, 16, COR_TEXTO_SUAVE);
+        registrar_botao((Rectangle){barra.x - 10.0f, barra.y - 35.0f,
+                                     barra.width + 20.0f, 64.0f}, BOTAO_VOLUME + canal);
+    }
+    DrawText("Arraste ou use <- / -> e +/-", 50, 544, 16, COR_TEXTO_SUAVE);
 }
 
 void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int selecionada)
@@ -490,6 +572,8 @@ void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int se
 
     botao_centralizado("VOLTAR", textura_configuracoes.id != 0 ? 555 : 585,
                        30, COR_TEXTO_SUAVE, BOTAO_VOLTAR_CONFIGURACOES);
+
+    desenhar_volumes(configuracoes, selecionada);
 
     terminar_desenho();
 }

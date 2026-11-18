@@ -18,7 +18,7 @@ static bool resolucao_zerada(Resolucao r)
 
 static void test_padrao_e_a_janela_de_1280_por_720(void)
 {
-    Configuracoes configuracoes = {-1};
+    Configuracoes configuracoes = {.resolucao = -1};
     Resolucao padrao;
 
     configuracoes_iniciar(&configuracoes);
@@ -27,6 +27,9 @@ static void test_padrao_e_a_janela_de_1280_por_720(void)
     CHECK(padrao.largura == 1280);
     CHECK(padrao.altura == 720);
     CHECK(!padrao.tela_cheia);
+    CHECK(configuracoes.volume_geral == 80);
+    CHECK(configuracoes.volume_sfx == 80);
+    CHECK(configuracoes.volume_musica == 40);
 
     configuracoes_iniciar(NULL);
 }
@@ -129,6 +132,93 @@ static void test_mover_selecao_aguenta_valores_extremos(void)
     CHECK(configuracoes_mover_selecao(RESOLUCOES_TOTAL, -1) == RESOLUCOES_TOTAL - 1);
 }
 
+static void test_volumes_sao_independentes_e_limitados(void)
+{
+    Configuracoes configuracoes;
+
+    configuracoes_iniciar(&configuracoes);
+    for (int canal = 0; canal < VOLUMES_TOTAL; canal++) {
+        CHECK(configuracoes_definir_volume(&configuracoes, (CanalVolume)canal, INT_MIN));
+        CHECK(configuracoes_volume(&configuracoes, (CanalVolume)canal) == 0);
+        CHECK(configuracoes_definir_volume(&configuracoes, (CanalVolume)canal, INT_MAX));
+        CHECK(configuracoes_volume(&configuracoes, (CanalVolume)canal) == 100);
+        CHECK(configuracoes_definir_volume(&configuracoes, (CanalVolume)canal, canal * 25));
+    }
+    CHECK(configuracoes.volume_geral == 0);
+    CHECK(configuracoes.volume_sfx == 25);
+    CHECK(configuracoes.volume_musica == 50);
+    CHECK(configuracoes.resolucao == 1);
+    CHECK(!configuracoes_definir_volume(NULL, VOLUME_GERAL, 50));
+    CHECK(!configuracoes_definir_volume(&configuracoes, (CanalVolume)-1, 50));
+    CHECK(!configuracoes_definir_volume(&configuracoes, VOLUMES_TOTAL, 50));
+    CHECK(configuracoes_volume(NULL, VOLUME_GERAL) == 0);
+    CHECK(configuracoes_volume(&configuracoes, VOLUMES_TOTAL) == 0);
+    CHECK(configuracoes.volume_geral == 0);
+    CHECK(configuracoes.volume_sfx == 25);
+    CHECK(configuracoes.volume_musica == 50);
+}
+
+static void test_volumes_persistem_sem_alterar_a_resolucao(void)
+{
+    const char *caminho = "build/test_configuracoes_audio.cfg";
+    Configuracoes origem;
+    Configuracoes destino;
+
+    configuracoes_iniciar(&origem);
+    configuracoes_iniciar(&destino);
+    CHECK(configuracoes_escolher_resolucao(&destino, 3));
+    CHECK(configuracoes_definir_volume(&origem, VOLUME_GERAL, 0));
+    CHECK(configuracoes_definir_volume(&origem, VOLUME_SFX, 100));
+    CHECK(configuracoes_definir_volume(&origem, VOLUME_MUSICA, 17));
+    CHECK(configuracoes_salvar_volumes(&origem, caminho));
+    CHECK(configuracoes_carregar_volumes(&destino, caminho));
+    CHECK(destino.volume_geral == 0);
+    CHECK(destino.volume_sfx == 100);
+    CHECK(destino.volume_musica == 17);
+    CHECK(destino.resolucao == 3);
+
+    CHECK(configuracoes_definir_volume(&origem, VOLUME_MUSICA, 99));
+    CHECK(configuracoes_salvar_volumes(&origem, caminho));
+    CHECK(configuracoes_carregar_volumes(&destino, caminho));
+    CHECK(destino.volume_musica == 99);
+    CHECK(destino.resolucao == 3);
+    CHECK(remove(caminho) == 0);
+    CHECK(!configuracoes_carregar_volumes(&destino, caminho));
+    CHECK(destino.volume_musica == 99);
+}
+
+static void test_arquivo_de_volume_invalido_nao_altera_nada(void)
+{
+    const char *caminho = "build/test_configuracoes_audio.cfg";
+    const char *invalidos[] = {
+        "DMBAUDIO 2\ngeral 10\nsfx 20\nmusica 30\n",
+        "DMBAUDIO 1\ngeral 10\nsfx 20\n",
+        "DMBAUDIO 1\ngeral 10\nsfx 20\nmusica 101\n",
+        "DMBAUDIO 1\ngeral -1\nsfx 20\nmusica 30\n",
+        "DMBAUDIO 1\ngeral 99999999999999999999999\nsfx 20\nmusica 30\n",
+        "DMBAUDIO 1\ngeral 10\nsfx 20\nmusica 30\nlixo\n"
+    };
+    Configuracoes configuracoes;
+
+    configuracoes_iniciar(&configuracoes);
+    for (size_t i = 0; i < sizeof invalidos / sizeof invalidos[0]; i++) {
+        FILE *arquivo = fopen(caminho, "wb");
+        CHECK(arquivo != NULL);
+        CHECK(fputs(invalidos[i], arquivo) >= 0);
+        CHECK(fclose(arquivo) == 0);
+        CHECK(!configuracoes_carregar_volumes(&configuracoes, caminho));
+        CHECK(configuracoes.volume_geral == 80);
+        CHECK(configuracoes.volume_sfx == 80);
+        CHECK(configuracoes.volume_musica == 40);
+    }
+    CHECK(remove(caminho) == 0);
+    CHECK(!configuracoes_carregar_volumes(NULL, caminho));
+    CHECK(!configuracoes_carregar_volumes(&configuracoes, NULL));
+    CHECK(!configuracoes_salvar_volumes(NULL, caminho));
+    CHECK(!configuracoes_salvar_volumes(&configuracoes, NULL));
+    CHECK(!configuracoes_salvar_volumes(&configuracoes, ""));
+}
+
 int main(void)
 {
     test_padrao_e_a_janela_de_1280_por_720();
@@ -137,6 +227,9 @@ int main(void)
     test_escolher_resolucao();
     test_mover_selecao_da_a_volta_na_lista();
     test_mover_selecao_aguenta_valores_extremos();
-    puts("OK: configuracoes (resolucao padrao, lista 16:9 com tela cheia, escolha e selecao circular).");
+    test_volumes_sao_independentes_e_limitados();
+    test_volumes_persistem_sem_alterar_a_resolucao();
+    test_arquivo_de_volume_invalido_nao_altera_nada();
+    puts("OK: configuracoes (resolucoes, volumes 0..100 independentes e persistencia validada).");
     return EXIT_SUCCESS;
 }

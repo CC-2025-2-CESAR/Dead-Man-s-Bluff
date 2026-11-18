@@ -175,6 +175,12 @@ A mesa ainda é um texto cru de teste, sem design, que o Matheus vai substituir.
 
 No MSYS2 UCRT64, use `mingw32-make jogo` e mantenha `C:\msys64\ucrt64\bin` no `PATH`, pois o executável usa a `libraylib.dll` e a `glfw3.dll` dessa pasta.
 
+### Áudio
+
+A música de cassino toca em loop desde o menu e continua durante a partida. As animações de embaralhar, distribuir, colocar e virar cartas têm efeitos sincronizados. Uma trapaça descoberta toca o efeito de tensão; a roleta toca o giro do tambor e, no resultado, o gatilho vazio ou o disparo se o jogador morrer.
+
+Em **Configurações**, os sliders **Geral**, **SFX** e **Música** vão de **0 a 100** e mudam o volume na hora. Geral controla todo o áudio; SFX e Música ajustam suas categorias separadamente. Clique ou arraste a barra, ou selecione com W/S ou as setas e ajuste com esquerda/direita. As escolhas de volume ficam em `audio.cfg`, separado do progresso da partida. O padrão é Geral 80, SFX 80 e Música 40. Os arquivos usados e seus nomes de origem estão em `assets/sounds/README.md`.
+
 ### Integração em C11
 
 `poker_settle` recebe as duas mãos separadamente para aceitar cartas constantes e mutáveis sem casts em C11:

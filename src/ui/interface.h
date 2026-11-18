@@ -41,12 +41,17 @@ typedef enum {
  * voltar: pediu para voltar ao menu, pelo teclado ou clicando em Voltar.
  * apontada: posição da opção sob o mouse, se ele se moveu ou clicou neste
  * quadro; -1 nos demais casos. Quem recebe passa a destacar essa opção.
+ * canal_volume: canal a alterar, ou -1; volume: valor absoluto, ou -1.
+ * ajuste_volume: variação pedida pelo teclado, em pontos percentuais.
  */
 typedef struct {
     int movimento;
     bool confirmar;
     bool voltar;
     int apontada;
+    int canal_volume;
+    int volume;
+    int ajuste_volume;
 } EntradaConfiguracoes;
 
 /**
@@ -126,17 +131,20 @@ void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe);
 
 /**
  * Lê o teclado na tela de configurações: W/S ou as setas movem a seleção,
- * ENTER ou ESPAÇO confirmam e ESC volta ao menu.
+ * ENTER ou ESPAÇO confirmam e ESC volta ao menu. Nos volumes, esquerda/direita
+ * ou +/- ajustam em passos de 5; clique e arraste também alteram o valor.
  *
+ * @param selecionada opção destacada antes da leitura deste quadro.
  * @return os comandos do quadro.
  */
-EntradaConfiguracoes interface_configuracoes_ler_entrada(void);
+EntradaConfiguracoes interface_configuracoes_ler_entrada(int selecionada);
 
 /**
- * Desenha a tela de configurações, com a lista de resoluções.
+ * Desenha a tela de configurações, com resoluções e volumes de 0 a 100.
  *
  * @param configuracoes configurações em uso; a resolução atual aparece marcada.
- * @param selecionada posição destacada na lista de resoluções.
+ * @param selecionada resolução (0..RESOLUCOES_TOTAL-1) ou volume
+ * (RESOLUCOES_TOTAL + CanalVolume) destacado.
  */
 void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int selecionada);
 
