@@ -19,6 +19,8 @@ static Texture2D textura_vitoria = { 0 };
 static Texture2D textura_derrota = { 0 };
 
 static Texture2D textura_mesa = { 0 };
+static Texture2D textura_protagonista = { 0 };
+static Texture2D textura_numeros[10];
 static Texture2D textura_confirmacao_novo_jogo = { 0 };
 static Texture2D textura_configuracoes = { 0 };
 static Texture2D textura_dealer = { 0 };
@@ -231,6 +233,9 @@ void interface_iniciar(void)
     textura_vitoria = LoadTexture("assets/images/vitoria.png");
     textura_derrota = LoadTexture("assets/images/derrota.png");
     textura_mesa = LoadTexture("assets/images/mesa.png");
+    textura_protagonista = LoadTexture("assets/images/protagonista.png");
+    for (int i = 0; i < 10; i++)
+        textura_numeros[i] = LoadTexture(TextFormat("assets/images/numeros/N%d.png", i));
     textura_confirmacao_novo_jogo = LoadTexture("assets/images/confirmacao_novo_jogo.png");
     textura_configuracoes = LoadTexture("assets/images/configuracoes.png");
     textura_dealer = LoadTexture("assets/images/dealer.png");
@@ -256,6 +261,14 @@ void interface_encerrar(void)
 
     if (textura_mesa.id != 0)
         UnloadTexture(textura_mesa);
+
+    if (textura_protagonista.id != 0)
+        UnloadTexture(textura_protagonista);
+
+    for (int i = 0; i < 10; i++) {
+        if (textura_numeros[i].id != 0)
+            UnloadTexture(textura_numeros[i]);
+    }
 
     if (textura_confirmacao_novo_jogo.id != 0)
         UnloadTexture(textura_confirmacao_novo_jogo);
@@ -620,10 +633,6 @@ static PokerStatus trapaca_status[PEDIDO_TOTAL];
 static bool trapaca_vale_para_a_carta[PEDIDO_TOTAL][2];
 static PokerCard cartas_a_vista[10];
 static int total_de_cartas_a_vista;
-
-/** Cartas do adversário que o suborno mostrou na mão atual. */
-static PokerCard cartas_reveladas[2];
-static bool ha_cartas_reveladas;
 
 /* O evento de distribuição fixa as cartas do adversário e seus dorsos nesta mão. */
 static PokerCard cartas_do_adversario[2];
@@ -1172,7 +1181,6 @@ static const char *nome_da_acao(PokerActionType acao)
 void interface_mesa_limpar_eventos(void)
 {
     eventos_registrados = 0;
-    ha_cartas_reveladas = false;
     adversario_recebeu_cartas = false;
     marcou_carta_do_adversario[0] = false;
     marcou_carta_do_adversario[1] = false;
@@ -1371,7 +1379,6 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
 
     switch (evento->tipo) {
         case EVENTO_MAO_INICIADA:
-            ha_cartas_reveladas = false;
             adversario_recebeu_cartas = false;
             marcou_carta_do_adversario[0] = false;
             marcou_carta_do_adversario[1] = false;
@@ -1431,14 +1438,6 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
                 }
             }
 
-            if (evento->trapaca.pedido == PEDIDO_SUBORNO_VER &&
-                evento->trapaca.resultado == TRAPACA_SUCESSO &&
-                evento->trapaca.quantidade_de_cartas == 2) {
-                cartas_reveladas[0] = evento->trapaca.cartas[0];
-                cartas_reveladas[1] = evento->trapaca.cartas[1];
-                ha_cartas_reveladas = true;
-            }
-
             linha_da_trapaca(&evento->trapaca, linha, sizeof linha);
             guardar_linha(linha);
             mostrar_resultado_da_trapaca(&evento->trapaca, linha);
@@ -1475,38 +1474,6 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             }
             break;
     }
-}
-
-/**
- * Escreve, ao lado do nome do adversário, o comportamento dele nesta mão:
- * " (agressivo)", " (medroso)" ou " (desconfiado)".
- */
-static void texto_do_comportamento(const Partida *partida, char *out, size_t tamanho)
-{
-    const char *nome;
-
-    switch (partida->ia.style) {
-        case POKER_AI_AGGRESSIVE:
-            nome = "agressivo";
-            break;
-
-        case POKER_AI_CAUTIOUS:
-            nome = "medroso";
-            break;
-
-        default:
-            nome = "desconfiado";
-            break;
-    }
-
-    snprintf(out, tamanho, " (%s)", nome);
-}
-
-/** Desenha uma linha de texto simples e desce a posição vertical. */
-static void desenhar_linha(const char *texto, int *y, Color cor)
-{
-    DrawText(texto, 40, *y, 22, cor);
-    *y += 32;
 }
 
 /* Os botões da vez ficam no canto de baixo à direita, sobre a mesa, como nos mockups. */
@@ -1691,7 +1658,6 @@ static const char *NOME_DO_SERVICO[3] = {
 static const Icone ICONE_DO_SERVICO[3] = { ICONE_CARTA_MESA, ICONE_CARTA_MAO, ICONE_OLHO };
 
 /* Índices por PokerAIStyle: CAUTIOUS, BALANCED, AGGRESSIVE. */
-static const char *NOMES_DOS_ESTILOS[3] = { "MEDROSO", "DESCONFIADO", "AGRESSIVO" };
 static const char *ARQUIVOS_DOS_ESTILOS[3] = { "medroso", "desconfiado", "agressivo" };
 
 /* Recortes das imagens, em frações da largura e da altura. */
@@ -1706,8 +1672,6 @@ static int grupo_no_detalhe = -1;
 static double inicio_do_detalhe;
 static float risco_mostrado;
 static float brilho_das_linhas[GRUPOS_DE_TRAPACA];
-static int estilo_na_mesa = -1;
-static double inicio_da_troca_de_estilo;
 
 static float limitar(float valor, float minimo, float maximo)
 {
@@ -1833,15 +1797,6 @@ static Color cor_do_risco(int chance)
     if (chance < 45)
         return (Color){ 222, 126, 54, 255 };
     return PAINEL_VERMELHO_VIVO;
-}
-
-static Color cor_do_estilo(int estilo)
-{
-    if (estilo == (int)POKER_AI_AGGRESSIVE)
-        return PAINEL_VERMELHO_VIVO;
-    if (estilo == (int)POKER_AI_CAUTIOUS)
-        return (Color){ 150, 186, 214, 255 };
-    return PAINEL_OURO_VIVO;
 }
 
 /** Bolinhas de uso de uma trapaça neste confronto (até três aparecem). */
@@ -2655,27 +2610,63 @@ static void desenhar_roleta(const Partida *partida)
                     true, true, BOTAO_CONTINUAR);
 }
 
-/**
- * O comportamento do oponente no canto da mesa, que muda junto com a IA. Só o
- * status: a figura do oponente ali é do Matheus.
- */
-static void desenhar_oponente_na_mesa(const Partida *partida)
+/** Retratos nas laterais da mesa; o adversário acompanha o confronto e o estilo da IA. */
+static void desenhar_personagens_na_mesa(const Partida *partida)
 {
-    Rectangle moldura = { 1060.0f, 22.0f, 200.0f, 78.0f };
-    int estilo = indice_do_estilo(partida->ia.style);
-    float t;
+    desenhar_recorte(textura_protagonista, RETRATO_INTEIRO,
+                     (Vector2){ -70.0f, 280.0f }, 330.0f, 0.0f, WHITE);
+    desenhar_recorte(retrato_do_oponente(partida, partida->ia.style), RETRATO_INTEIRO,
+                     (Vector2){ 975.0f, 280.0f }, 330.0f, 0.0f, WHITE);
+}
 
-    if (estilo != estilo_na_mesa) {
-        estilo_na_mesa = estilo;
-        inicio_da_troca_de_estilo = GetTime();
+/** Desenha o valor com N0.png a N9.png, centralizado e ajustado à área. */
+static void desenhar_valor_em_png(PokerChips valor, Rectangle area)
+{
+    char digitos[32];
+    int quantidade;
+    float altura = area.height;
+    float largura_digito;
+    float espacamento = 2.0f;
+    float largura_total;
+    float x;
+
+    snprintf(digitos, sizeof digitos, "%lld", (long long)valor);
+    quantidade = (int)strlen(digitos);
+
+    for (int i = 0; i < quantidade; i++) {
+        int indice = digitos[i] - '0';
+        if (indice < 0 || indice > 9 || textura_numeros[indice].id == 0) {
+            texto_no_meio(digitos, area, area.y, 28, PAINEL_OURO_VIVO);
+            return;
+        }
     }
 
-    t = painel_suave(painel_progresso(inicio_da_troca_de_estilo, 0.6));
-    painel_desenhar(moldura, 0.95f);
-    texto_no_meio(partida_nome_do_adversario(partida->torneio.confronto), moldura, moldura.y + 12.0f, 16,
-                  PAINEL_TEXTO_SUAVE);
-    texto_no_meio(NOMES_DOS_ESTILOS[estilo], moldura, moldura.y + 40.0f + (1.0f - t) * 8.0f, 22,
-                  Fade(cor_do_estilo(estilo), 0.25f + 0.75f * t));
+    largura_digito = altura * (float)textura_numeros[0].width / (float)textura_numeros[0].height;
+    largura_total = (float)quantidade * largura_digito + (float)(quantidade - 1) * espacamento;
+    if (largura_total > area.width) {
+        float escala = area.width / largura_total;
+        largura_digito *= escala;
+        altura *= escala;
+        espacamento *= escala;
+        largura_total = area.width;
+    }
+
+    x = area.x + (area.width - largura_total) / 2.0f;
+    for (int i = 0; i < quantidade; i++) {
+        Texture2D numero = textura_numeros[digitos[i] - '0'];
+        DrawTexturePro(numero, (Rectangle){ 0.0f, 0.0f, (float)numero.width, (float)numero.height },
+                       (Rectangle){ x, area.y + (area.height - altura) / 2.0f, largura_digito, altura },
+                       (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
+        x += largura_digito + espacamento;
+    }
+}
+
+static void desenhar_contador(Rectangle area, const char *rotulo, PokerChips valor)
+{
+    painel_desenhar(area, 0.95f);
+    texto_no_meio(rotulo, area, area.y + 5.0f, 15, PAINEL_TEXTO_SUAVE);
+    desenhar_valor_em_png(valor, (Rectangle){ area.x + 10.0f, area.y + 24.0f,
+                                              area.width - 20.0f, area.height - 28.0f });
 }
 
 /** Média das chances de ser descoberto agora, nas cinco trapaças. */
@@ -2713,7 +2704,7 @@ static void desenhar_recado(void)
 
     opacidade = idade < 0.25f ? idade / 0.25f : (idade > 2.8f ? (3.4f - idade) / 0.6f : 1.0f);
     largura = (float)MeasureText(texto_do_recado, 18) + 90.0f;
-    area = (Rectangle){ ((float)LARGURA_TELA - largura) / 2.0f, 192.0f, largura, 46.0f };
+    area = (Rectangle){ ((float)LARGURA_TELA - largura) / 2.0f, 552.0f, largura, 46.0f };
 
     painel_desenhar(area, opacidade);
     painel_icone(icone_do_recado, (Rectangle){ area.x + 14.0f, area.y + 8.0f, 30.0f, 30.0f },
@@ -2731,8 +2722,6 @@ static void desenhar_cartas_da_mesa(const Partida *partida)
 
     if (mao->situacao == MAO_VAZIA)
         return;
-
-    desenhar_texto_centralizado("MESA", 211, 19, COR_OURO);
 
     for (int i = 0; i < frentes + versos && (size_t)i < mao->cartas_no_board; i++) {
         PokerCard carta = mao->board[i];
@@ -2752,9 +2741,6 @@ static void desenhar_cartas_da_mesa(const Partida *partida)
         else
             cartas_desenhar_verso(false, area);
     }
-
-    DrawText("VOCE", 314, 387, 19, COR_OURO);
-    DrawText("ADVERSARIO", 766, 387, 19, COR_OURO);
 
     for (int i = 0; i < 2; i++) {
         PokerCard carta = mao->cartas[TORNEIO_ASSENTO_JOGADOR][i];
@@ -2792,12 +2778,6 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     const Mao *mao = &partida->mao;
     const PokerTable *mesa = &mao->mesa;
     bool terminou = mao->situacao == MAO_ENCERRADA || mao->situacao == MAO_REGISTRADA;
-    char linha[TAMANHO_LINHA];
-    char estilo_da_mao[24];
-    char cartas[64];
-    PokerCard ordenadas[MAO_CARTAS_ORDENADAS];
-    size_t quantidade;
-    int y = 24;
 
     registrar_disponibilidade(partida);
     comecar_desenho();
@@ -2847,84 +2827,23 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         );
     }
 
+    desenhar_personagens_na_mesa(partida);
+
     if (animacoes_iniciais_ativas()) {
         animacoes_desenhar();
         terminar_desenho();
         return;
     }
 
-    /* Só a faixa do alto, atrás do texto de status; o pé da mesa fica aberto, com os botões por cima. */
-    DrawRectangle(0, 0, LARGURA_TELA, 181, (Color){ 6, 9, 8, 218 });
-    DrawLine(0, 180, LARGURA_TELA, 180, COR_OURO);
     cartas_do_adversario_visiveis = adversario_recebeu_cartas && mao->situacao != MAO_VAZIA;
-
-    texto_do_comportamento(partida, estilo_da_mao, sizeof estilo_da_mao);
-    snprintf(linha, sizeof linha, "CONFRONTO %d/%d: %s%s     MÃO %d     BLINDS %lld/%lld",
-             partida->torneio.confronto + 1, TORNEIO_CONFRONTOS,
-             partida_nome_do_adversario(partida->torneio.confronto),
-             estilo_da_mao,
-             partida->torneio.maos_jogadas + (terminou ? 0 : 1),
-             (long long)(mesa->big_blind / 2), (long long)mesa->big_blind);
-    desenhar_linha(linha, &y, COR_OURO);
-
-    /* Depois da mão, o torneio manda: ele já inclui o que a roleta devolveu. */
-    snprintf(linha, sizeof linha, "VOCÊ: %lld     ADVERSÁRIO: %lld     POTE: %lld     BALAS NO TAMBOR: %d/6",
-             (long long)(terminou ? partida->torneio.fichas_jogador
-                                  : mesa->player[TORNEIO_ASSENTO_JOGADOR].chips),
-             (long long)(terminou ? partida->torneio.fichas_adversario
-                                  : mesa->player[TORNEIO_ASSENTO_ADVERSARIO].chips),
-             (long long)poker_pot(mesa),
-             partida->risco.balas_roleta);
-    desenhar_linha(linha, &y, COR_TEXTO);
-
-    quantidade = mao_cartas_ordenadas(mao, TORNEIO_ASSENTO_JOGADOR, ordenadas);
-    texto_das_cartas(ordenadas, (int)quantidade, cartas, sizeof cartas);
-    snprintf(linha, sizeof linha, "SUA MÃO ORDENADA: %s", quantidade > 0 ? cartas : "-");
-    desenhar_linha(linha, &y, COR_TEXTO);
-
-    {
-        char manga[8];
-        int marcas = 0;
-
-        for (int i = 0; i < 5; i++)
-            marcas += partida->cheats.turnos_marcacao[i] > 0 ? 1 : 0;
-
-        texto_da_carta(partida->cheats.carta_na_manga, manga, sizeof manga);
-
-        if (partida->cheats.maos_embriagado > 0) {
-            snprintf(linha, sizeof linha, "TRAPAÇAS: manga %s     cartas marcadas: %d     adversário embriagado (%d mãos)",
-                     manga, marcas, partida->cheats.maos_embriagado);
-        } else {
-            snprintf(linha, sizeof linha, "TRAPAÇAS: manga %s     cartas marcadas: %d     adversário sóbrio", manga, marcas);
-        }
-
-        desenhar_linha(linha, &y, COR_TEXTO);
-    }
-
-    if (terminou && mao->resultado.showdown) {
-        texto_das_cartas(mao->cartas[TORNEIO_ASSENTO_ADVERSARIO], 2, cartas, sizeof cartas);
-    } else if (ha_cartas_reveladas) {
-        texto_das_cartas(cartas_reveladas, 2, cartas, sizeof cartas);
-        strncat(cartas, " (suborno)", sizeof cartas - strlen(cartas) - 1);
-    } else {
-        snprintf(cartas, sizeof cartas, "ocultas");
-    }
-
-    if (terminou && mao->resultado.showdown) {
-        snprintf(linha, sizeof linha, "SHOWDOWN: %s", cartas);
-        DrawText(linha, 40, 151, 18, COR_TEXTO_SUAVE);
-    } else if (ha_cartas_reveladas) {
-        snprintf(linha, sizeof linha, "SUBORNO: %s", cartas);
-        DrawText(linha, 40, 151, 18, COR_TEXTO_SUAVE);
-    }
+    desenhar_contador((Rectangle){ 554.0f, 184.0f, 172.0f, 60.0f }, "POTE", poker_pot(mesa));
+    desenhar_contador((Rectangle){ 30.0f, 526.0f, 200.0f, 62.0f }, "FICHAS",
+                      terminou ? partida->torneio.fichas_jogador : mesa->player[TORNEIO_ASSENTO_JOGADOR].chips);
+    desenhar_contador((Rectangle){ 1050.0f, 526.0f, 200.0f, 62.0f }, "FICHAS",
+                      terminou ? partida->torneio.fichas_adversario : mesa->player[TORNEIO_ASSENTO_ADVERSARIO].chips);
 
     desenhar_cartas_da_mesa(partida);
     animacoes_desenhar();
-
-    /* Por baixo das telas das trapaças, dos avisos e da roleta já aparece outra figura grande. */
-    if (tela_de_trapacas == TRAPACAS_FECHADAS && aviso_aberto == AVISO_NENHUM &&
-        partida->situacao != PARTIDA_ROLETA)
-        desenhar_oponente_na_mesa(partida);
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
@@ -2967,9 +2886,9 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     if (partida->situacao != PARTIDA_ROLETA)
         desenhar_suspeita_na_mesa(partida);
 
-    /* A volta ao menu, pequena, embaixo do status do oponente. */
+    /* A volta ao menu fica sozinha no alto da tela. */
     if (tela_de_trapacas == TRAPACAS_FECHADAS)
-        botao_da_mesa((Rectangle){ 1160.0f, 112.0f, 100.0f, 34.0f }, "MENU", false, true, BOTAO_VOLTAR_DA_MESA);
+        botao_da_mesa((Rectangle){ 1160.0f, 20.0f, 100.0f, 34.0f }, "MENU", false, true, BOTAO_VOLTAR_DA_MESA);
 
     if (partida->situacao == PARTIDA_ROLETA && aviso_aberto == AVISO_NENHUM)
         desenhar_roleta(partida);
