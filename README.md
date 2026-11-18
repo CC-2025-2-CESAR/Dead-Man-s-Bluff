@@ -1,195 +1,62 @@
 # Dead Man's Bluff
 
-Pôquer Texas Hold'em single-player em que trapacear faz parte da estratégia, desenvolvido em C com Raylib para a disciplina de Algoritmos e Estruturas de Dados (AED).
+Jogo de pôquer Texas Hold'em para um jogador, inspirado em **007 — Cassino Royale** e desenvolvido em **C com Raylib** para a disciplina de Algoritmos e Estruturas de Dados da CESAR School.
 
-> **Estado atual:** motor de pôquer heads-up implementado, com testes de console e demonstração Raylib, tela inicial do jogo com o loop principal, lógica do torneio, loop da mão, IA dos adversários e uma mesa jogável de ponta a ponta com interface de teste. A roleta russa e as cinco trapaças já funcionam e podem ser usadas na mesa de teste; a interface gráfica definitiva está em desenvolvimento.
+O objetivo é derrotar três adversários em confrontos de um contra um. Além das apostas e dos blefes, é possível marcar cartas, subornar o dealer e usar outras trapaças. Ser descoberto ou ficar sem fichas pode levar à roleta russa.
 
-## Sobre o jogo
+O projeto utiliza **listas simplesmente encadeadas** no gerenciamento das cartas e **Insertion Sort** na ordenação das mãos. Os adversários tomam decisões por regras e probabilidades implementadas em C.
 
-O jogo é Texas Hold'em **1 contra 1 (heads-up)**. O jogador enfrenta três oponentes em um **torneio** de três confrontos. Os oponentes não têm um estilo fixo: durante o confronto cada um alterna entre agressivo, medroso e desconfiado conforme as fichas, e todos começam desconfiados. Ele começa com 2.000 fichas e leva o saldo de um confronto para o seguinte, enquanto os adversários entram com 2.000, 6.000 e 10.000 fichas. O último, o chefe, tem uma **segunda vida**: na primeira vez que fica sem fichas, ele se levanta com 8.000 fichas novas, e só a segunda queda dá o título. Ele também resiste mais: só fica medroso com 40% das fichas ou menos, enquanto os outros ficam com 60%. Os blinds sobem a cada poucas mãos para a partida não se arrastar e recomeçam em cada confronto, mas não na segunda vida do chefe.
+## Equipe e contribuições
 
-Ganhar as mãos importa, mas o desafio é sobreviver às consequências de trapacear: a **suspeita** de cada adversário e a **roleta russa**, acionada quando o jogador é descoberto ou perde todas as fichas.
-
-## Inspiração
-
-A atmosfera é inspirada em **007 — Cassino Royale**: mesas de alto risco, tensão psicológica e blefe. O universo, os personagens e a história são próprios do projeto.
-
-## Mecânicas
-
-**Já implementadas**
-
-- Texas Hold'em heads-up com apostas, avaliação de mãos e pote.
-- Torneio de três confrontos, com saldo acumulado, blinds crescentes e recuperação após falência.
-- Três adversários com comportamentos diferentes, que usam um único motor de decisão com parâmetros próprios e podem ficar embriagados.
-
-**Em desenvolvimento**
-
-- Ações ilegais, que custam fichas e saem de circulação: embriagar o adversário (*spike his drink*), espelho ou cúmplice, ás na manga, suborno do dealer e marcar carta.
-- Chance de ser descoberto, que depende do risco da ação, da suspeita acumulada e da vigilância do adversário.
-- Suspeita individual por adversário.
-- Roleta russa com revólver de seis câmaras, cujas balas persistem durante o torneio.
-- Interface gráfica definitiva, com mesa, cartas, fichas e animações.
-
-**Visão futura, fora da primeira versão**
-
-- Elementos roguelike, novos adversários, eventos aleatórios, mais trapaças e sistemas de progressão.
-
-## Tecnologias e estruturas de dados previstas
-
-- Linguagem **C**.
-- Biblioteca **Raylib** para a parte gráfica.
-- **Listas simplesmente encadeadas** para o gerenciamento das cartas, com o baralho em `src/cards/deck.c`.
-- **Insertion Sort** para a ordenação das mãos, sobre a lista encadeada de `src/cards/lista_cartas.c`.
-- Algoritmos próprios para as probabilidades e para as decisões dos adversários, como a estimativa de equidade por Monte Carlo.
-
-## Equipe e responsabilidades
-
-| Integrante | Área | Responsabilidades |
-| --- | --- | --- |
-| Arthur | Game Engine e arquitetura | Loop principal, estados, torneio, loop da mão, fila de eventos, integração entre os módulos e revisão dos PRs |
-| Júlia | Poker Engine | Regras do pôquer, avaliação das mãos, sistema de apostas, comparação de combinações e determinação dos vencedores |
-| Rafael | Cartas, estruturas de dados e IA | Listas simplesmente encadeadas, gerenciamento do baralho, embaralhamento e distribuição, compra, descarte e ordenação das cartas, e a IA dos três adversários |
-| Peixoto | Mecânicas | Ações ilegais, probabilidades de descoberta, suspeita e roleta russa |
-| Matheus | Interface gráfica | Interface com Raylib, menus e telas, renderização de cartas e fichas, interações e animações |
-
-## Estrutura de pastas
-
-```
-Dead-Man-s-Bluff/
-├── README.md
-├── Makefile
-├── tests/         # Testes automatizados do motor
-├── examples/      # Demonstrações de console e Raylib
-├── src/
-│   ├── main.c
-│   ├── core/       # Engine: loop, torneio, mão, partida e eventos
-│   ├── cards/      # Lista encadeada de cartas e baralho
-│   ├── poker/      # Regras, avaliação de mãos e apostas
-│   ├── gameplay/   # IA dos adversários, trapaças, probabilidades e suspeita
-│   └── ui/         # Interface gráfica e animações (Raylib)
-└── assets/
-    ├── images/
-    ├── sounds/
-    └── fonts/
-```
-
-| Pasta | Conteúdo |
+| Integrante | Contribuição |
 | --- | --- |
-| `src/core/` | Núcleo do jogo e integração entre os módulos |
-| `src/cards/` | Estruturas de dados das cartas e gerenciamento do baralho |
-| `src/poker/` | Motor de pôquer e sistema de apostas |
-| `src/gameplay/` | IA dos adversários, mecânicas de trapaça, probabilidades e suspeita |
-| `src/ui/` | Telas, menus, renderização e animações |
-| `assets/` | Imagens, sons e fontes |
+| Arthur Filipe Silva dos Reis (afsr) | Núcleo do jogo, torneio, integração dos módulos, salvamento e áudio. |
+| Gabriel Peixoto e Silva Ferreira (gpsf) | Trapaças, probabilidades de descoberta, suspeita e roleta russa. |
+| Júlia Tenório Calado (jtc) | Regras do pôquer, avaliação das mãos, apostas e definição dos vencedores. |
+| Matheus Assis de Souza Jácome (masj) | Interface com Raylib, menus, telas, cartas, fichas e animações. |
+| Rafael Almeida Carrilho (rac4) | Baralho, listas encadeadas, ordenação das cartas e IA dos adversários. |
 
-O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apostas e pagamento). A API pública está em `src/poker/poker.h`; `apostas.h` inclui essa interface para consumidores do módulo de apostas. O loop principal e os estados do jogo estão em `src/core/jogo.c`, a lógica do torneio (3 confrontos, saldo, blinds e recuperação após falência), em `src/core/torneio.c`, o loop de uma mão (baralho, motor e torneio juntos), em `src/core/mao.c`, a fila de eventos que a interface consome para animar a mão, em `src/core/eventos.c`, a IA dos adversários (3 perfis), em `src/gameplay/poker_ai.c`, a ponte entre a mão e a IA, em `src/core/mao_ia.c`, o controlador da partida (torneio, mão, eventos e IA juntos), em `src/core/partida.c`, a lista encadeada de cartas com o Insertion Sort das mãos, em `src/cards/lista_cartas.c`, e a tela inicial, em `src/ui/interface.c`. Os demais módulos ainda contêm comentários `TODO`.
+## Como executar
 
-## Estado atual
+Requisitos: **compilador C11, GNU Make, Raylib 5.5 e pkg-config**. Execute os comandos na raiz do projeto, onde ficam o `Makefile` e a pasta `assets/`.
 
-- [x] Planejamento do projeto e divisão de responsabilidades.
-- [x] Estruturação inicial do repositório.
-- [x] Motor de pôquer heads-up e demonstrações.
-- [x] Tela inicial (Jogar/Sair) e loop principal com Raylib.
-- [x] Lógica do torneio: 3 confrontos, saldo acumulado, blinds crescentes e recuperação após falência.
-- [x] Loop da mão: embaralhar, distribuir, rodadas de apostas, showdown e registro no torneio.
-- [x] Fila de eventos da mão para a interface animar (distribuição, ações, board, showdown e pagamento).
-- [x] IA dos adversários com 3 perfis e ponte para a mão.
-- [x] Controlador da partida: torneio, mão, fila de eventos e IA juntos, com o perfil de cada confronto.
-- [x] Lista encadeada de cartas com Insertion Sort para ordenar as mãos, usada pela mão e mostrada na mesa de teste.
-- [x] Configurações com a escolha da resolução e salvar e continuar o jogo de onde parou.
-- [x] Mesa jogável de ponta a ponta no `make jogo`, com interface de teste em texto cru (o design da mesa é do Matheus).
-- [x] Roleta russa e trapaças no core, com custo, risco de descoberta e salvamento.
-- [x] Telas das trapaças, da suspeita e da roleta no estilo noir, com o dealer mudando de cara conforme a suspeita e apontando o revólver na roleta.
-- [ ] Balanceamento das chances, dos custos e das balas.
-- [ ] Interface gráfica definitiva (mesa, cartas, fichas e animações).
-- [ ] Integração e testes.
+### Windows — MSYS2 UCRT64
 
-
-## Compilação e testes do motor
-
-Requer um compilador C11 e GNU Make. Raylib não é necessária para os testes ou para a demonstração de console.
+No terminal **MSYS2 UCRT64**, instale as dependências uma vez:
 
 ```sh
-make test
-make console-demo
-./build/console_demo
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,make,raylib,pkgconf}
 ```
 
-Os alvos usam `-std=c11 -Wall -Wextra -Wpedantic -Werror`. Os testes verificam vitória por par superior, all-in com stacks diferentes (ambos os assentos e vencedores), devolução de apostas não cobertas, empate, ficha ímpar, fold, conservação de fichas e rejeição de pagamento duplicado. A demonstração de console termina com saldos de `2300 / 1700` após raise para 300. O `make test` também roda `tests/test_torneio.c`, que joga confrontos completos com o motor e confere saldo, blinds, falência, recuperação e a segunda vida do chefe, `tests/test_mao.c`, que joga mãos inteiras com baralho, motor e torneio (desistência, all-in em cada rua, stacks menores que o blind e torneios completos com ações aleatórias), `tests/test_eventos.c`, que confere a fila de eventos e a sequência de eventos de cada tipo de mão, `tests/test_partida.c`, que joga partidas inteiras contra a IA, `tests/test_lista_cartas.c`, que confere a lista de cartas e o Insertion Sort contra o `qsort`, `tests/test_configuracoes.c`, que confere a lista de resoluções e a seleção, `tests/test_salvamento.c`, que refaz partidas salvas em cada situação e confere que continuam iguais às originais até o fim do torneio, `tests/test_trapacas.c`, que confere custos, chances, regras e efeitos de cada trapaça e refaz partidas inteiras pelo registro, e os três testes do baralho (`test_deck`, `test_edge_cases` e `test_integration`), que conferem as 52 cartas únicas, a distribuição heads-up e partidas completas com o motor.
-
-Para compilar sem Make:
+Depois, compile e abra o jogo:
 
 ```sh
-cc -std=c11 -Wall -Wextra -Wpedantic -Werror -Isrc/poker tests/test_poker.c src/poker/poker.c src/poker/apostas.c -o test_poker
-./test_poker
+mingw32-make jogo CC=gcc
+./build/dead_mans_bluff.exe
 ```
 
-### Windows / PowerShell sem Make
+### Linux / macOS
 
-Se o GCC estiver em `C:\mingw64\bin`, execute na raiz do repositório:
-
-```powershell
-& "C:\mingw64\bin\gcc.exe" -std=c11 -Wall -Wextra -Wpedantic -Werror -Isrc/poker tests/test_poker.c src/poker/poker.c src/poker/apostas.c -o test_poker.exe
-# Execute somente se a compilação terminar sem erros:
-.\test_poker.exe
-```
-
-Para a demonstração de console:
-
-```powershell
-& "C:\mingw64\bin\gcc.exe" -std=c11 -Wall -Wextra -Wpedantic -Werror -Isrc/poker examples/console_demo.c src/poker/poker.c src/poker/apostas.c -o console_demo.exe
-.\console_demo.exe
-```
-
-Ajuste o caminho do compilador caso sua instalação seja diferente.
-
-### Demonstração Raylib
-
-Com Raylib e seu arquivo `raylib.pc` instalados:
-
-```sh
-make raylib-demo
-./build/raylib_demo
-```
-
-Em instalações sem `pkg-config`, informe as opções do seu ambiente, por exemplo no Windows/MinGW:
-
-```sh
-make raylib-demo RAYLIB_CFLAGS="-IC:/raylib/include" RAYLIB_LIBS="-LC:/raylib/lib -lraylib -lopengl32 -lgdi32 -lwinmm"
-```
-
-Controles: **C** passa/paga, **B** aposta/aumenta pelo mínimo, **A** faz all-in, **F** desiste e **N** avança a etapa ou paga o pote. A demonstração controla os dois jogadores e usa cartas fixas, sem IA nem embaralhamento. No pré-flop, use B e C; depois alterne N e dois C até o showdown. O último N paga o pote, com saldos de `2200 / 1800`.
-
-### Jogo
-
-Com Raylib instalada:
+Com as dependências instaladas:
 
 ```sh
 make jogo
 ./build/dead_mans_bluff
 ```
 
-Abre a tela inicial: **W/S** ou as setas navegam e **ENTER** ou **ESPAÇO** confirmam, ou então é só **clicar** nas opções com o mouse. O mouse vale em todas as telas: nos menus, na escolha da resolução (incluindo **Voltar**), na confirmação de jogo novo (**Sim** ou **Não**) e na mesa, onde cada ação da sua vez é um botão e o texto de fim de mão e o de voltar ao menu também são clicáveis. O cursor vira uma mão sobre o que pode ser clicado. **Novo jogo** começa o torneio contra os três oponentes, e **ESC** volta ao menu. **Continuar** retoma o jogo exatamente de onde ele estava, mesmo no meio de uma mão, e fica apagado enquanto não há jogo salvo. O jogo se salva sozinho a cada jogada, ao voltar ao menu e ao sair, no arquivo `progresso.sav` da pasta de onde o jogo foi aberto, então até uma queda do programa não perde o progresso. O arquivo é apagado quando a partida termina, por falência definitiva, morte na roleta ou título. Salvamentos de uma versão anterior do jogo não são reconhecidos, e aí **Continuar** fica apagado. Começar um novo jogo com um salvo pede confirmação, porque o salvo é substituído. **Configurações** abre a escolha da resolução: 960x540, 1280x720, 1600x900, 1920x1080 ou tela cheia. As janelas que não cabem no monitor aparecem apagadas e não podem ser escolhidas, e o jogo sempre abre em 1280x720. **Sair**, ou fechar a janela, encerra o jogo.
+## Controles
 
-A mesa ainda é um texto cru de teste, sem design, que o Matheus vai substituir. Ela mostra a sua mão (suas cartas mais o board) ordenada da maior para a menor carta, com o Insertion Sort. Na sua vez: **F** desiste, **C** passa ou paga, **R** aposta ou aumenta (as setas para cima e para baixo, ou os botões **[-]** e **[+]**, ajustam o valor de 1 em 1 ficha; segurar a seta repete o ajuste e Shift usa passos de um big blind), **A** vai all-in; cada um também é um botão na tela. **ENTER** ou **ESPAÇO** seguem para a próxima mão. Se você fica sem fichas, aparece a **roleta russa**: **ENTER** ou um clique puxa o gatilho. Sobrevivendo, uma bala entra no tambor e você volta ao confronto com metade das fichas iniciais do adversário (até 3 vezes por partida); se a bala dispara, ou se já usou as 3 voltas, a partida acaba e **ENTER** recomeça. Vencer um confronto tira uma bala. A mesa mostra as balas no tambor. Na sua vez, **T** (ou o botão **[T] trapaças**) abre o menu das trapaças: **1 a 7**, **W/S** e **ENTER** ou cliques escolhem entre batizar a bebida do adversário, o cúmplice, marcar uma carta, os três subornos do dealer (carta na mesa, carta na sua mão e ver as cartas dele) e o ás na manga. O menu mostra o custo e o risco de ser descoberto de cada uma, e as que pedem uma carta abrem um seletor (setas para o valor e o naipe, **ENTER** confirma, **ESC** volta). Ser descoberto leva à roleta. A mesa mostra a carta da manga, as suas cartas marcadas, a bebedeira do adversário e as cartas que o suborno revelou.
+Todas as ações também podem ser feitas com o **mouse**.
 
-No MSYS2 UCRT64, use `mingw32-make jogo` e mantenha `C:\msys64\ucrt64\bin` no `PATH`, pois o executável usa a `libraylib.dll` e a `glfw3.dll` dessa pasta.
+| Tecla | Ação |
+| --- | --- |
+| W/S ou setas e Enter | Navegar e confirmar nos menus |
+| F / C / R / A | Desistir / passar ou pagar / apostar ou aumentar / all-in |
+| ↑ / ↓ | Ajustar a aposta de uma em uma ficha; Shift usa passos de um big blind |
+| T | Abrir as trapaças |
+| Enter ou Espaço | Avançar após a mão e confirmar a roleta |
+| Esc | Voltar |
 
-### Áudio
+O progresso é salvo automaticamente. Em **Configurações**, é possível alterar a resolução e os volumes Geral, SFX e Música de 0 a 100.
 
-A música de cassino toca em loop desde o menu e continua durante a partida. As animações de embaralhar, distribuir, colocar e virar cartas têm efeitos sincronizados. Uma trapaça descoberta toca o efeito de tensão; a roleta toca o giro do tambor e, no resultado, o gatilho vazio ou o disparo se o jogador morrer.
-
-Em **Configurações**, os sliders **Geral**, **SFX** e **Música** vão de **0 a 100** e mudam o volume na hora. Geral controla todo o áudio; SFX e Música ajustam suas categorias separadamente. Clique ou arraste a barra, ou selecione com W/S ou as setas e ajuste com esquerda/direita. As escolhas de volume ficam em `audio.cfg`, separado do progresso da partida. O padrão é Geral 80, SFX 80 e Música 40. Os arquivos usados e seus nomes de origem estão em `assets/sounds/README.md`.
-
-### Integração em C11
-
-`poker_settle` recebe as duas mãos separadamente para aceitar cartas constantes e mutáveis sem casts em C11:
-
-```c
-PokerCard hole[2][2]; /* preencher com cartas válidas */
-PokerCard board[5];  /* preencher com o board completo */
-/* table e result devem estar declarados; table deve estar em showdown. */
-poker_settle(&table, hole[0], hole[1], board, &result);
-```
-
-Em vitória por fold, use `poker_settle(&table, NULL, NULL, NULL, &result)`.
+Para executar os testes automatizados: `make test` (ou `mingw32-make test CC=gcc` no Windows).
