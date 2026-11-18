@@ -218,10 +218,16 @@ static void test_custo_e_chance_de_cada_trapaca(void)
 
     p.cheats.usos_cumplice_blind = 2;
     CHECK(partida_custo_da_trapaca(&p, PEDIDO_CUMPLICE) == 60);
+
+    /* O suborno sobe com as fichas iniciais do adversário: 6.000 e 10.000 dão base 300 e 500. */
     p.torneio.confronto = 2;
-    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_VER) == 1200);
+    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_MESA) == 500);
+    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_MAO) == 1000);
+    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_VER) == 1500);
     p.torneio.confronto = 1;
-    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_MESA) == 200);
+    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_MESA) == 300);
+    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_MAO) == 600);
+    CHECK(partida_custo_da_trapaca(&p, PEDIDO_SUBORNO_VER) == 900);
     p.torneio.confronto = 0;
     p.cheats.usos_cumplice_blind = 0;
 
@@ -1205,6 +1211,7 @@ static void conferir_partidas_iguais(const Partida *a, const Partida *b)
     CHECK(a->torneio.fichas_adversario == b->torneio.fichas_adversario);
     CHECK(a->torneio.maos_jogadas == b->torneio.maos_jogadas);
     CHECK(a->torneio.recuperacoes == b->torneio.recuperacoes);
+    CHECK(a->torneio.segunda_vida_usada == b->torneio.segunda_vida_usada);
     CHECK(a->semente_da_mao == b->semente_da_mao);
     CHECK(a->estado_das_sementes == b->estado_das_sementes);
     CHECK(a->estado_do_risco == b->estado_do_risco);
@@ -1310,6 +1317,7 @@ static bool passo_juntas(Partida *a, Partida *b, unsigned *sorteio, Estatisticas
     PokerChips soma_antes = a->torneio.fichas_jogador + a->torneio.fichas_adversario;
     int confronto_antes = a->torneio.confronto;
     int recuperacoes_antes = a->torneio.recuperacoes;
+    bool segunda_vida_antes = a->torneio.segunda_vida_usada;
 
     switch (a->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
@@ -1378,8 +1386,10 @@ static bool passo_juntas(Partida *a, Partida *b, unsigned *sorteio, Estatisticas
     conferir_partidas_iguais(a, b);
     conferir_invariantes(a);
 
-    /* As fichas só saem de circulação, a não ser quando a roleta devolve o jogador ou o confronto muda. */
+    /* As fichas só saem de circulação, a não ser quando a roleta devolve o jogador, o chefe volta
+     * com a segunda vida ou o confronto muda. */
     if (a->torneio.confronto == confronto_antes && a->torneio.recuperacoes == recuperacoes_antes &&
+        a->torneio.segunda_vida_usada == segunda_vida_antes &&
         a->torneio.situacao == TORNEIO_EM_ANDAMENTO) {
         CHECK(a->torneio.fichas_jogador + a->torneio.fichas_adversario <= soma_antes);
     }

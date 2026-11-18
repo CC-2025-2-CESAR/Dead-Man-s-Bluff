@@ -940,6 +940,7 @@ static void test_torneio_completo_com_acoes_aleatorias(void)
     int confrontos_vencidos = 0;
     int falencias = 0;
     int campeoes = 0;
+    int segundas_vidas = 0;
 
     for (int semente = 1; semente <= SEMENTES; semente++) {
         Torneio torneio;
@@ -953,6 +954,7 @@ static void test_torneio_completo_com_acoes_aleatorias(void)
 
         while (!terminou) {
             PokerChips antes = torneio.fichas_jogador + torneio.fichas_adversario;
+            bool segunda_vida_antes = torneio.segunda_vida_usada;
 
             CHECK(++maos <= LIMITE_DE_MAOS);
             CHECK(mao_iniciar(&mao, &torneio));
@@ -960,6 +962,16 @@ static void test_torneio_completo_com_acoes_aleatorias(void)
             CHECK(mao.situacao == MAO_ENCERRADA);
             CHECK(soma_das_fichas(&mao) == antes);
             CHECK(mao_registrar_no_torneio(&mao, &torneio));
+
+            /* As fichas se conservam, a não ser quando o chefe se levanta com a segunda vida. */
+            if (torneio.segunda_vida_usada && !segunda_vida_antes) {
+                segundas_vidas++;
+                CHECK(torneio.situacao == TORNEIO_EM_ANDAMENTO);
+                CHECK(torneio.fichas_jogador == antes);
+                CHECK(torneio.fichas_adversario == torneio_segunda_vida(torneio.confronto));
+                antes += torneio.fichas_adversario;
+            }
+
             CHECK(torneio.fichas_jogador + torneio.fichas_adversario == antes);
 
             switch (torneio.situacao) {
@@ -982,6 +994,7 @@ static void test_torneio_completo_com_acoes_aleatorias(void)
 
                 case TORNEIO_CAMPEAO:
                     campeoes++;
+                    CHECK(torneio.segunda_vida_usada);
                     terminou = true;
                     break;
             }
@@ -991,6 +1004,7 @@ static void test_torneio_completo_com_acoes_aleatorias(void)
     CHECK(confrontos_vencidos > 0);
     CHECK(falencias > 0);
     CHECK(campeoes > 0);
+    CHECK(segundas_vidas >= campeoes);
 }
 
 int main(void)

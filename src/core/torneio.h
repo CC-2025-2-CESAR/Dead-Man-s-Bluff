@@ -39,6 +39,9 @@ typedef enum {
  * blinds e volta a zero a cada novo confronto.
  * dealer: assento que dá as cartas na próxima mão (também é o small blind).
  * recuperacoes: quantas vezes o jogador voltou de uma falência.
+ * segunda_vida_usada: true se o adversário do confronto atual já caiu uma vez
+ * e voltou com a segunda vida (ver torneio_segunda_vida); volta a false a
+ * cada confronto novo.
  * situacao: situação atual do torneio.
  */
 typedef struct {
@@ -48,6 +51,7 @@ typedef struct {
     int maos_jogadas;
     int dealer;
     int recuperacoes;
+    bool segunda_vida_usada;
     TorneioSituacao situacao;
 } Torneio;
 
@@ -66,6 +70,18 @@ void torneio_iniciar(Torneio *torneio);
  * @return fichas iniciais do adversário, ou 0 se o índice for inválido.
  */
 PokerChips torneio_fichas_iniciais_adversario(int confronto);
+
+/**
+ * Informa com quantas fichas o adversário de um confronto volta depois de
+ * cair pela primeira vez: a segunda vida da luta contra o chefe. Só o último
+ * adversário tem uma; ela entra no meio do confronto, sem recomeçar os blinds
+ * (ver torneio_registrar_mao).
+ *
+ * @param confronto índice do confronto, de 0 a TORNEIO_CONFRONTOS - 1.
+ * @return fichas da segunda vida; 0 se o adversário não tem segunda vida ou
+ * se o índice for inválido.
+ */
+PokerChips torneio_segunda_vida(int confronto);
 
 /**
  * Calcula o big blind da próxima mão. Ele começa num valor próprio de cada
@@ -102,6 +118,13 @@ void torneio_stacks(const Torneio *torneio, PokerChips stacks[2]);
  * fichas aumentar: fichas só podem sair de circulação (por exemplo,
  * pagamentos de trapaça), nunca surgir.
  *
+ * Se o adversário ficar sem fichas e ainda tiver a segunda vida do confronto
+ * (ver torneio_segunda_vida), ele volta com as fichas dela, segunda_vida_usada
+ * vira true e o torneio continua em andamento, sem recomeçar os blinds: a
+ * contagem de mãos segue e o dealer alterna como sempre. Como em
+ * torneio_recuperar_jogador, essas fichas entram em jogo agora. Só a segunda
+ * queda vence o confronto.
+ *
  * @param torneio estado do torneio.
  * @param fichas_jogador fichas do jogador ao fim da mão.
  * @param fichas_adversario fichas do adversário ao fim da mão.
@@ -115,8 +138,8 @@ bool torneio_registrar_mao(
 
 /**
  * Passa para o próximo confronto depois de uma vitória. O jogador leva o
- * saldo acumulado, o novo adversário entra com as fichas do seu confronto e
- * os blinds reiniciam.
+ * saldo acumulado, o novo adversário entra com as fichas do seu confronto (e
+ * com a segunda vida dele ainda por usar) e os blinds reiniciam.
  *
  * @param torneio estado do torneio.
  * @return true se avançou; false se o confronto atual não foi vencido.

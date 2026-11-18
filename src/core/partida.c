@@ -5,6 +5,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** Limite do medroso de cada confronto, em %; o chefe resiste mais antes de ter medo. */
+static const int LIMITE_DO_MEDROSO[TORNEIO_CONFRONTOS] = { 60, 60, 40 };
+
+int partida_limite_do_medroso(int confronto)
+{
+    if (confronto < 0 || confronto >= TORNEIO_CONFRONTOS) {
+        return 0;
+    }
+
+    return LIMITE_DO_MEDROSO[confronto];
+}
+
 PokerAIStyle partida_estilo_do_adversario(const Torneio *torneio)
 {
     PokerChips inicial = torneio_fichas_iniciais_adversario(torneio->confronto);
@@ -13,7 +25,7 @@ PokerAIStyle partida_estilo_do_adversario(const Torneio *torneio)
         return POKER_AI_BALANCED;
     }
 
-    if (torneio->fichas_adversario * 100 <= inicial * PARTIDA_ESTILO_ATRAS_PCT) {
+    if (torneio->fichas_adversario * 100 <= inicial * partida_limite_do_medroso(torneio->confronto)) {
         return POKER_AI_CAUTIOUS;
     }
 
@@ -125,6 +137,16 @@ static void emitir_trapaca(Partida *partida, const EventoTrapaca *dados)
     fila_eventos_adicionar(&partida->eventos, &evento);
 }
 
+/** Coloca um EVENTO_SEGUNDA_VIDA na fila: o adversário acabou de voltar com as fichas novas. */
+static void emitir_segunda_vida(Partida *partida)
+{
+    EventoJogo evento = {.tipo = EVENTO_SEGUNDA_VIDA};
+
+    evento.segunda_vida.confronto = partida->torneio.confronto;
+    evento.segunda_vida.fichas = partida->torneio.fichas_adversario;
+    fila_eventos_adicionar(&partida->eventos, &evento);
+}
+
 /**
  * Ajusta a situação da partida ao que aconteceu na mão. Se a mão acabou,
  * registra o resultado no torneio antes de olhar para ele e deixa as
@@ -137,8 +159,15 @@ static bool atualizar_situacao(Partida *partida)
     Mao *mao = &partida->mao;
 
     if (mao->situacao == MAO_ENCERRADA) {
+        bool segunda_vida_antes = partida->torneio.segunda_vida_usada;
+
         if (!mao_registrar_no_torneio(mao, &partida->torneio)) {
             return false;
+        }
+
+        /* O torneio devolveu o chefe à mesa com a segunda vida: a interface precisa saber. */
+        if (!segunda_vida_antes && partida->torneio.segunda_vida_usada) {
+            emitir_segunda_vida(partida);
         }
 
         cheat_update_end_of_hand(&partida->cheats);
@@ -1087,6 +1116,7 @@ static bool dados_validos(const PartidaSalva *salva)
            (torneio->dealer == TORNEIO_ASSENTO_JOGADOR ||
             torneio->dealer == TORNEIO_ASSENTO_ADVERSARIO) &&
            torneio->recuperacoes >= 0 &&
+           (!torneio->segunda_vida_usada || torneio_segunda_vida(torneio->confronto) > 0) &&
            salva->rng_acao != 0 && salva->rng_equidade != 0 &&
            risco_valido(&salva->risco) &&
            cheats_validos(&salva->cheats) &&

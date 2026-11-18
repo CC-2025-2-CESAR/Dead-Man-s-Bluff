@@ -164,15 +164,25 @@ bool interface_aplicar_resolucao(Resolucao resolucao);
 /**
  * Lê o que o jogador fez na mesa neste quadro. Hoje: F desiste, C passa ou
  * paga, R aposta ou aumenta, A vai all-in, as setas para cima e para baixo
- * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre o
- * menu das trapaças (só na vez do jogador): os números de 1 a 7, as setas e
- * ENTER escolhem, a carta da mão ou a carta pedida ao dealer vêm de um
- * seletor (setas para o valor e o naipe), e ESC volta um passo ou fecha. Tudo
- * isso também se faz com cliques.
+ * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre as
+ * telas das trapaças (só na vez do jogador): 1 a 5, as setas e ENTER escolhem
+ * entre as cinco; o suborno abre três serviços (1 a 3); marcar e a manga pedem
+ * a carta da mão (1 ou 2), e o suborno de carta, uma das 52 numa grade (setas
+ * e ENTER). Antes de cada trapaça aparece a chance de ser descoberto, com
+ * CONTINUAR (ENTER) e RECUAR (ESC); ESC volta um passo ou fecha. Depois de uma
+ * trapaça ou da roleta, um aviso fica por cima da mesa até ENTER, ESC ou um
+ * clique. Tudo isso também se faz com cliques.
  *
  * @return os comandos do quadro.
  */
 EntradaMesa interface_mesa_ler_entrada(void);
+
+/**
+ * Indica se há algo por cima da mesa esperando o jogador: a carta marcada
+ * ampliada ou o aviso de uma trapaça ou da roleta. Enquanto isso, a partida
+ * não anda.
+ */
+bool interface_mesa_modal_aberto(void);
 
 /**
  * Recebe um evento do jogo, na ordem em que aconteceu, para animar ou
