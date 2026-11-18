@@ -4,3 +4,5 @@
 build/
 *.sav
 *.sav.tmp
+audio.cfg
+audio.cfg.tmp
