@@ -6,6 +6,10 @@ O objetivo é derrotar três adversários em confrontos de um contra um. Além d
 
 O projeto utiliza **listas simplesmente encadeadas** no gerenciamento das cartas e **Insertion Sort** na ordenação das mãos. Os adversários tomam decisões por regras e probabilidades implementadas em C.
 
+## Demonstração
+
+[Assista ao gameplay no YouTube](https://youtu.be/6Yfe091A7YA).
+
 ## Equipe e contribuições
 
 | Integrante | Contribuição |
