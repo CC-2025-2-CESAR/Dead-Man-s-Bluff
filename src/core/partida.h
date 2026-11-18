@@ -28,11 +28,10 @@
 #define PARTIDA_MARCA_DURACAO 5
 
 /**
- * Limites do estilo dinâmico do adversário, em % das fichas com que ele
- * começou o confronto. Com PARTIDA_ESTILO_ATRAS_PCT ou menos ele está
- * perdendo; com PARTIDA_ESTILO_FRENTE_PCT ou mais, ganhando.
+ * Limite de cima do estilo dinâmico do adversário, em % das fichas com que ele
+ * começou o confronto: com isso ou mais ele está ganhando. O limite de baixo
+ * muda de um confronto para o outro (ver partida_limite_do_medroso).
  */
-#define PARTIDA_ESTILO_ATRAS_PCT 60
 #define PARTIDA_ESTILO_FRENTE_PCT 125
 
 /** Chance, em %, de o dealer subornado pegar o dinheiro e não fazer o serviço. */
@@ -52,12 +51,14 @@
  * PARTIDA_VEZ_DO_JOGADOR: o jogador precisa agir; use partida_agir_jogador.
  * PARTIDA_VEZ_DO_ADVERSARIO: a IA precisa agir; use partida_agir_adversario.
  * PARTIDA_MAO_ENCERRADA: a mão acabou e o torneio continua; use
- * partida_continuar para começar a próxima.
+ * partida_continuar para começar a próxima. É também o que acontece quando o
+ * chefe cai pela primeira vez e volta com a segunda vida (EVENTO_SEGUNDA_VIDA).
  * PARTIDA_CONFRONTO_VENCIDO: o adversário ficou sem fichas; use
  * partida_continuar para enfrentar o próximo.
  * PARTIDA_JOGADOR_FALIDO: o jogador ficou sem fichas e já usou todas as
  * recuperações possíveis (PARTIDA_RECUPERACOES_MAXIMAS); a partida acabou.
- * PARTIDA_CAMPEAO: o último adversário foi derrotado e a partida acabou.
+ * PARTIDA_CAMPEAO: o último adversário foi derrotado (as duas vidas dele) e a
+ * partida acabou.
  * PARTIDA_ROLETA: a roleta russa espera o gatilho; use partida_puxar_gatilho.
  * Partida.roleta_motivo diz por que ela foi acionada.
  * PARTIDA_JOGADOR_MORTO: o jogador morreu na roleta e a partida acabou.
@@ -411,14 +412,28 @@ PokerStatus partida_acoes_legais(const Partida *partida, PokerLegalActions *out)
 const char *partida_nome_do_adversario(int confronto);
 
 /**
+ * Diz com quantos % das fichas com que começou o confronto o adversário passa
+ * a jogar medroso: 60% nos dois primeiros confrontos e 40% no chefe, que só
+ * fica com medo quando está mais perto de quebrar.
+ *
+ * @param confronto índice do confronto, de 0 a TORNEIO_CONFRONTOS - 1.
+ * @return o limite em %; 0 se o índice for inválido.
+ */
+int partida_limite_do_medroso(int confronto);
+
+/**
  * Diz como o adversário joga a mão que começa com o torneio neste estado.
  * Todo oponente alterna entre os mesmos três comportamentos, conforme as
- * fichas que tem em relação às que trouxe para o confronto, e começa o
- * confronto desconfiado:
+ * fichas que tem em relação às que trouxe para o confronto
+ * (torneio_fichas_iniciais_adversario), e começa o confronto desconfiado:
  *
- * - perdendo (PARTIDA_ESTILO_ATRAS_PCT ou menos): medroso (POKER_AI_CAUTIOUS);
+ * - perdendo (partida_limite_do_medroso do confronto ou menos): medroso
+ *   (POKER_AI_CAUTIOUS);
  * - ganhando (PARTIDA_ESTILO_FRENTE_PCT ou mais): agressivo (POKER_AI_AGGRESSIVE);
  * - no meio: desconfiado (POKER_AI_BALANCED, o jogo equilibrado).
+ *
+ * A segunda vida do chefe conta pela mesma régua: os 8.000 com que ele volta
+ * são 80% dos 10.000 iniciais, então ele volta desconfiado.
  *
  * Depende só do torneio, que o salvamento já guarda no começo da mão; por
  * isso o estilo se refaz ao continuar sem entrar no arquivo. O estilo vale

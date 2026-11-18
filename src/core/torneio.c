@@ -1,7 +1,10 @@
 #include "core/torneio.h"
 
 /** Fichas com que o adversário de cada confronto começa. */
-static const PokerChips FICHAS_ADVERSARIO[TORNEIO_CONFRONTOS] = { 2000, 4000, 8000 };
+static const PokerChips FICHAS_ADVERSARIO[TORNEIO_CONFRONTOS] = { 2000, 6000, 10000 };
+
+/** Fichas da segunda vida de cada adversário; só o chefe, o último, tem uma. */
+static const PokerChips SEGUNDA_VIDA[TORNEIO_CONFRONTOS] = { 0, 0, 8000 };
 
 /** Big blind do nível zero de cada confronto. */
 static const PokerChips BIG_BLIND_INICIAL[TORNEIO_CONFRONTOS] = { 20, 40, 80 };
@@ -32,6 +35,7 @@ void torneio_iniciar(Torneio *torneio)
     torneio->maos_jogadas = 0;
     torneio->dealer = TORNEIO_ASSENTO_JOGADOR;
     torneio->recuperacoes = 0;
+    torneio->segunda_vida_usada = false;
     torneio->situacao = TORNEIO_EM_ANDAMENTO;
 }
 
@@ -42,6 +46,15 @@ PokerChips torneio_fichas_iniciais_adversario(int confronto)
     }
 
     return FICHAS_ADVERSARIO[confronto];
+}
+
+PokerChips torneio_segunda_vida(int confronto)
+{
+    if (confronto < 0 || confronto >= TORNEIO_CONFRONTOS) {
+        return 0;
+    }
+
+    return SEGUNDA_VIDA[confronto];
 }
 
 PokerChips torneio_big_blind(const Torneio *torneio)
@@ -91,6 +104,11 @@ bool torneio_registrar_mao(
 
     if (fichas_jogador == 0) {
         torneio->situacao = TORNEIO_JOGADOR_FALIDO;
+    } else if (fichas_adversario == 0 && !torneio->segunda_vida_usada &&
+               torneio_segunda_vida(torneio->confronto) > 0) {
+        /* O chefe cai e se levanta: fichas novas, e os blinds seguem no nível em que estão. */
+        torneio->fichas_adversario = torneio_segunda_vida(torneio->confronto);
+        torneio->segunda_vida_usada = true;
     } else if (fichas_adversario == 0) {
         torneio->situacao = torneio->confronto == TORNEIO_CONFRONTOS - 1
             ? TORNEIO_CAMPEAO
@@ -110,6 +128,7 @@ bool torneio_avancar_confronto(Torneio *torneio)
     torneio->fichas_adversario = FICHAS_ADVERSARIO[torneio->confronto];
     torneio->maos_jogadas = 0;
     torneio->dealer = TORNEIO_ASSENTO_JOGADOR;
+    torneio->segunda_vida_usada = false;
     torneio->situacao = TORNEIO_EM_ANDAMENTO;
 
     return true;

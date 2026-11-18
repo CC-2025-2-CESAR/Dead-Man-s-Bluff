@@ -1460,6 +1460,13 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             abrir_aviso(AVISO_ROLETA);
             break;
 
+        case EVENTO_SEGUNDA_VIDA:
+            snprintf(linha, sizeof linha, "%s caiu, mas se levanta de novo com %lld fichas!",
+                     partida_nome_do_adversario(evento->segunda_vida.confronto),
+                     (long long)evento->segunda_vida.fichas);
+            guardar_linha(linha);
+            break;
+
         case EVENTO_CARTAS_DISTRIBUIDAS:
             if (evento->cartas_distribuidas.assento == TORNEIO_ASSENTO_ADVERSARIO) {
                 cartas_do_adversario[0] = evento->cartas_distribuidas.cartas[0];

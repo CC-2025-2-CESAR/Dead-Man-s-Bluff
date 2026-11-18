@@ -27,6 +27,8 @@ typedef struct {
     int falidos;
     int campeoes;
     int passos;
+    int eventos_de_segunda_vida;
+    int voltas_do_chefe;
     PokerChips fichas_jogador;
     PokerChips fichas_adversario;
     int confronto;
@@ -46,15 +48,17 @@ static unsigned proximo_aleatorio(unsigned *semente)
 /**
  * O estilo que a IA deve ter numa mão: desconfiado (equilibrado), medroso se o adversário está
  * com poucas fichas e agressivo se está com muitas, em relação às que trouxe
- * para o confronto. Escrito à parte da implementação, em outra forma (razão em
- * vez de produto cruzado), para que o teste não repita o que ela faz.
+ * para o confronto. O chefe só fica medroso mais perto de quebrar (40% em vez
+ * de 60%). Escrito à parte da implementação, em outra forma (razão em vez de
+ * produto cruzado, tabelas próprias), para que o teste não repita o que ela faz.
  */
 static PokerAIStyle estilo_esperado(int confronto, PokerChips fichas_adversario)
 {
-    static const PokerChips INICIAL[TORNEIO_CONFRONTOS] = {2000, 4000, 8000};
+    static const PokerChips INICIAL[TORNEIO_CONFRONTOS] = {2000, 6000, 10000};
+    static const double MEDROSO[TORNEIO_CONFRONTOS] = {0.60, 0.60, 0.40};
     double razao = (double)fichas_adversario / (double)INICIAL[confronto];
 
-    if (razao <= PARTIDA_ESTILO_ATRAS_PCT / 100.0) {
+    if (razao <= MEDROSO[confronto]) {
         return POKER_AI_CAUTIOUS;
     }
 
@@ -133,6 +137,12 @@ static void drenar_eventos(Partida *partida, Resultado *resultado)
         if (evento.tipo == EVENTO_POTE_PAGO) {
             resultado->potes_pagos++;
         }
+
+        if (evento.tipo == EVENTO_SEGUNDA_VIDA) {
+            resultado->eventos_de_segunda_vida++;
+            CHECK(evento.segunda_vida.confronto == TORNEIO_CONFRONTOS - 1);
+            CHECK(evento.segunda_vida.fichas == torneio_segunda_vida(TORNEIO_CONFRONTOS - 1));
+        }
     }
 
     CHECK(partida->eventos.perdidos == 0);
@@ -179,6 +189,16 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
 
                 mao_ja_contada = false;
                 CHECK(partida.mao.situacao == MAO_REGISTRADA);
+
+                /* O chefe caiu e se levantou: as fichas da segunda vida entram em jogo uma vez. */
+                if (partida.torneio.segunda_vida_usada && resultado.voltas_do_chefe == 0) {
+                    resultado.voltas_do_chefe++;
+                    CHECK(partida.torneio.confronto == TORNEIO_CONFRONTOS - 1);
+                    CHECK(partida.torneio.fichas_adversario ==
+                          torneio_segunda_vida(partida.torneio.confronto));
+                    total += partida.torneio.fichas_adversario;
+                }
+
                 CHECK(partida.torneio.fichas_jogador + partida.torneio.fichas_adversario == total);
                 CHECK(partida_continuar(&partida));
                 break;
@@ -247,6 +267,8 @@ static Resultado jogar_ate_o_fim(unsigned semente, Politica politica, bool embri
                 resultado.maos++;
                 resultado.campeoes++;
                 CHECK(partida.torneio.confronto == TORNEIO_CONFRONTOS - 1);
+                CHECK(partida.torneio.segunda_vida_usada);
+                CHECK(resultado.voltas_do_chefe == 1);
                 terminou = true;
                 break;
 
@@ -534,6 +556,8 @@ static void test_partidas_inteiras(void)
             CHECK(resultado.recuperacoes <= PARTIDA_RECUPERACOES_MAXIMAS);
             CHECK(resultado.roletas == resultado.recuperacoes + resultado.mortes);
             CHECK(resultado.confrontos_vencidos <= TORNEIO_CONFRONTOS - 1);
+            CHECK(resultado.voltas_do_chefe <= 1);
+            CHECK(resultado.eventos_de_segunda_vida == resultado.voltas_do_chefe);
             confrontos_vencidos += resultado.confrontos_vencidos;
             derrotas += resultado.mortes + resultado.falidos;
             campeoes += resultado.campeoes;
@@ -571,6 +595,7 @@ static void test_mesma_semente_reproduz_a_partida(void)
         CHECK(a.roletas == b.roletas);
         CHECK(a.recuperacoes == b.recuperacoes);
         CHECK(a.mortes == b.mortes);
+        CHECK(a.voltas_do_chefe == b.voltas_do_chefe);
     }
 }
 
@@ -998,10 +1023,17 @@ static PokerAIDecisionInfo jogar_ate_a_ia_decidir(Partida *partida)
 
 static void test_o_estilo_do_adversario_depende_das_fichas(void)
 {
-    /* Os três oponentes seguem a mesma regra: começam desconfiados e só mudam com as fichas. */
+    /* O chefe só fica com medo mais perto de quebrar. */
+    CHECK(partida_limite_do_medroso(0) == 60);
+    CHECK(partida_limite_do_medroso(1) == 60);
+    CHECK(partida_limite_do_medroso(2) == 40);
+    CHECK(partida_limite_do_medroso(-1) == 0);
+    CHECK(partida_limite_do_medroso(TORNEIO_CONFRONTOS) == 0);
+
+    /* Os três oponentes seguem a mesma régua: começam desconfiados e só mudam com as fichas. */
     for (int confronto = 0; confronto < TORNEIO_CONFRONTOS; confronto++) {
         PokerChips inicial = torneio_fichas_iniciais_adversario(confronto);
-        PokerChips atras = inicial * PARTIDA_ESTILO_ATRAS_PCT / 100;
+        PokerChips atras = inicial * partida_limite_do_medroso(confronto) / 100;
         PokerChips frente = inicial * PARTIDA_ESTILO_FRENTE_PCT / 100;
 
         CHECK(estilo_com(confronto, inicial) == POKER_AI_BALANCED);
@@ -1017,6 +1049,14 @@ static void test_o_estilo_do_adversario_depende_das_fichas(void)
             CHECK(estilo_com(confronto, fichas) == estilo_esperado(confronto, fichas));
         }
     }
+
+    /* Com metade das fichas, o segundo oponente já tem medo; o chefe ainda não. */
+    CHECK(estilo_com(1, 3000) == POKER_AI_CAUTIOUS);
+    CHECK(estilo_com(2, 5000) == POKER_AI_BALANCED);
+    CHECK(estilo_com(2, 4000) == POKER_AI_CAUTIOUS);
+
+    /* A segunda vida do chefe (8.000 de 10.000) volta desconfiada. */
+    CHECK(estilo_com(2, torneio_segunda_vida(2)) == POKER_AI_BALANCED);
 
     CHECK(estilo_com(-1, 2000) == POKER_AI_BALANCED);
     CHECK(estilo_com(TORNEIO_CONFRONTOS, 2000) == POKER_AI_BALANCED);
@@ -1136,12 +1176,143 @@ static void test_o_estilo_dinamico_se_refaz_ao_continuar_o_salvamento(void)
     partida_encerrar(&refeita);
 }
 
+/** Esvazia a fila e conta os eventos de segunda vida, conferindo os dados e a ordem de cada um. */
+static int contar_segundas_vidas(Partida *partida)
+{
+    EventoJogo evento;
+    bool pote_pago = false;
+    int total = 0;
+
+    while (fila_eventos_retirar(&partida->eventos, &evento)) {
+        if (evento.tipo == EVENTO_POTE_PAGO) {
+            pote_pago = true;
+        }
+
+        if (evento.tipo == EVENTO_SEGUNDA_VIDA) {
+            CHECK(pote_pago);
+            CHECK(evento.segunda_vida.confronto == TORNEIO_CONFRONTOS - 1);
+            CHECK(evento.segunda_vida.fichas == torneio_segunda_vida(TORNEIO_CONFRONTOS - 1));
+            total++;
+        }
+    }
+
+    CHECK(partida->eventos.perdidos == 0);
+    return total;
+}
+
+/**
+ * Com a mão encerrada, põe a partida no chefe com uma ficha só e começa a mão
+ * seguinte. Com uma ficha ele vai all-in no blind e a mão se resolve ao
+ * começar; ele quebra mais ou menos metade das vezes, qualquer que seja o
+ * baralho, então o teste não depende da semente.
+ */
+static void chefe_com_uma_ficha(Partida *partida)
+{
+    PokerChips total = partida->torneio.fichas_jogador + partida->torneio.fichas_adversario;
+
+    CHECK(partida->situacao == PARTIDA_MAO_ENCERRADA);
+    partida->torneio.confronto = TORNEIO_CONFRONTOS - 1;
+    partida->torneio.fichas_adversario = 1;
+    partida->torneio.fichas_jogador = total - 1;
+    CHECK(partida_continuar(partida));
+    CHECK(partida->mao.situacao == MAO_REGISTRADA);
+}
+
+static void test_o_chefe_volta_uma_vez_com_a_segunda_vida(void)
+{
+    static PartidaSalva salva;
+    Partida partida = {0};
+    Partida refeita = {0};
+    int eventos = 0;
+    int tentativas = 0;
+    int maos;
+
+    CHECK(partida_iniciar(&partida, 12));
+    CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(contar_segundas_vidas(&partida) == 0);
+
+    /* Primeira queda: em vez do título, a mão acaba e o chefe volta com 8.000 fichas. */
+    while (!partida.torneio.segunda_vida_usada) {
+        CHECK(++tentativas < 200);
+        chefe_com_uma_ficha(&partida);
+        CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+        eventos += contar_segundas_vidas(&partida);
+    }
+
+    CHECK(eventos == 1);
+    CHECK(partida.torneio.situacao == TORNEIO_EM_ANDAMENTO);
+    CHECK(partida.torneio.fichas_adversario == torneio_segunda_vida(TORNEIO_CONFRONTOS - 1));
+
+    /* Guardada logo depois da queda, a mão se refaz e o chefe volta do mesmo jeito, com o aviso. */
+    CHECK(partida_exportar(&partida, &salva));
+    CHECK(!salva.torneio.segunda_vida_usada);
+    CHECK(partida_restaurar(&refeita, &salva));
+    CHECK(refeita.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(refeita.torneio.segunda_vida_usada);
+    CHECK(refeita.torneio.fichas_jogador == partida.torneio.fichas_jogador);
+    CHECK(refeita.torneio.fichas_adversario == partida.torneio.fichas_adversario);
+    CHECK(refeita.torneio.maos_jogadas == partida.torneio.maos_jogadas);
+    CHECK(contar_segundas_vidas(&refeita) == 1);
+
+    /* A segunda vida começa desconfiada e sem recomeçar a contagem dos blinds. */
+    maos = partida.torneio.maos_jogadas;
+    CHECK(maos > 0);
+    CHECK(partida_continuar(&partida));
+    CHECK(partida.ia.style == POKER_AI_BALANCED);
+    CHECK(partida.torneio_da_mao.maos_jogadas == maos);
+    CHECK(partida.torneio_da_mao.segunda_vida_usada);
+
+    /* Guardada no começo de uma mão da segunda vida, ela continua usada ao refazer. */
+    CHECK(partida_exportar(&partida, &salva));
+    CHECK(salva.torneio.segunda_vida_usada);
+    CHECK(partida_restaurar(&refeita, &salva));
+    CHECK(refeita.torneio.segunda_vida_usada);
+    CHECK(refeita.situacao == partida.situacao);
+    CHECK(refeita.ia.style == POKER_AI_BALANCED);
+    CHECK(contar_segundas_vidas(&refeita) == 0);
+
+    /* Um salvamento em que um adversário sem segunda vida já a teria usado é recusado. */
+    salva.torneio.confronto = 0;
+    CHECK(!partida_restaurar(&refeita, &salva));
+
+    for (int passos = 0; passos < 100 && (partida.situacao == PARTIDA_VEZ_DO_JOGADOR ||
+                                          partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO); passos++) {
+        if (partida.situacao == PARTIDA_VEZ_DO_JOGADOR) {
+            CHECK(partida_agir_jogador(&partida, DESISTIR) == POKER_OK);
+        } else {
+            CHECK(partida_agir_adversario(&partida, NULL) == POKER_OK);
+        }
+    }
+
+    CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA);
+    CHECK(contar_segundas_vidas(&partida) == 0);
+
+    /* Segunda queda: agora é o título, e o aviso não se repete. */
+    tentativas = 0;
+
+    while (partida.situacao != PARTIDA_CAMPEAO) {
+        CHECK(++tentativas < 200);
+        chefe_com_uma_ficha(&partida);
+        CHECK(partida.situacao == PARTIDA_MAO_ENCERRADA || partida.situacao == PARTIDA_CAMPEAO);
+        CHECK(contar_segundas_vidas(&partida) == 0);
+    }
+
+    CHECK(partida.torneio.situacao == TORNEIO_CAMPEAO);
+    CHECK(partida.torneio.fichas_adversario == 0);
+    CHECK(!partida_continuar(&partida));
+
+    partida_encerrar(&partida);
+    partida_encerrar(&refeita);
+}
+
 int main(void)
 {
     test_primeira_mao_comeca_na_vez_do_jogador();
     test_o_estilo_do_adversario_depende_das_fichas();
     test_o_estilo_muda_entre_maos_e_a_ia_joga_com_ele();
     test_o_estilo_dinamico_se_refaz_ao_continuar_o_salvamento();
+    test_o_chefe_volta_uma_vez_com_a_segunda_vida();
     test_nomes_dos_adversarios();
     test_recusas_de_turno_e_de_estado();
     test_desistencia_registra_no_torneio_e_continua();
@@ -1163,6 +1334,6 @@ int main(void)
     test_vencer_um_confronto_tira_uma_bala_e_recomeca_a_suspeita();
     test_a_ultima_bala_nao_sai_do_tambor();
     test_o_registro_guarda_acoes_e_gatilho_na_ordem();
-    puts("OK: partida com torneio, mao, fila de eventos, IA e roleta (turnos, confrontos, perfis, falencia e partidas inteiras).");
+    puts("OK: partida com torneio, mao, fila de eventos, IA e roleta (turnos, confrontos, perfis, segunda vida do chefe, falencia e partidas inteiras).");
     return EXIT_SUCCESS;
 }

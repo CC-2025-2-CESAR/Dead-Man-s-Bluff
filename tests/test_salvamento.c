@@ -141,6 +141,7 @@ static void conferir_torneios_iguais(const Torneio *a, const Torneio *b)
     CHECK(a->maos_jogadas == b->maos_jogadas);
     CHECK(a->dealer == b->dealer);
     CHECK(a->recuperacoes == b->recuperacoes);
+    CHECK(a->segunda_vida_usada == b->segunda_vida_usada);
     CHECK(a->situacao == b->situacao);
 }
 
@@ -432,7 +433,7 @@ static void test_formato_de_texto_vai_e_volta(void)
         tamanho = salvamento_formatar(&guardada, texto, sizeof texto);
         CHECK(tamanho > 0);
         CHECK(strlen(texto) == tamanho);
-        CHECK(strncmp(texto, "DMBSAVE 3\n", 10) == 0);
+        CHECK(strncmp(texto, "DMBSAVE 4\n", 10) == 0);
         CHECK(strcmp(texto + tamanho - 4, "fim\n") == 0);
 
         CHECK(salvamento_interpretar(texto, tamanho, &lida));
@@ -846,6 +847,12 @@ static void test_refazer_recusa_dados_adulterados(void)
     ruim.torneio.recuperacoes = -1;
     conferir_recusa(&ruim);
 
+    /* Só o chefe tem segunda vida: um adversário que não tem uma não pode tê-la usado. */
+    ruim = boa;
+    ruim.torneio.confronto = 0;
+    ruim.torneio.segunda_vida_usada = true;
+    conferir_recusa(&ruim);
+
     ruim = boa;
     ruim.situacao = PARTIDA_JOGADOR_FALIDO;
     conferir_recusa(&ruim);
@@ -897,6 +904,34 @@ static size_t texto_de_exemplo(char *texto, size_t capacidade, PartidaSalva *gua
     return salvamento_formatar(guardada, texto, capacidade);
 }
 
+static void test_a_segunda_vida_do_chefe_vai_e_volta_pelo_texto(void)
+{
+    static char texto[SALVAMENTO_TAMANHO_MAXIMO];
+    PartidaSalva guardada;
+    PartidaSalva lida;
+
+    CHECK(texto_de_exemplo(texto, sizeof texto, &guardada) > 0);
+    guardada.torneio.confronto = TORNEIO_CONFRONTOS - 1;
+
+    for (int usada = 0; usada <= 1; usada++) {
+        const char *linha;
+        const char *fim_da_linha;
+
+        guardada.torneio.segunda_vida_usada = usada == 1;
+        CHECK(salvamento_formatar(&guardada, texto, sizeof texto) > 0);
+
+        /* O campo é o último número da linha do torneio. */
+        linha = strstr(texto, "\ntorneio ");
+        CHECK(linha != NULL);
+        fim_da_linha = strchr(linha + 1, '\n');
+        CHECK(fim_da_linha != NULL && fim_da_linha[-2] == ' ' && fim_da_linha[-1] == '0' + usada);
+
+        CHECK(salvamento_interpretar(texto, strlen(texto), &lida));
+        CHECK(lida.torneio.segunda_vida_usada == (usada == 1));
+        conferir_torneios_iguais(&guardada.torneio, &lida.torneio);
+    }
+}
+
 static void test_texto_cortado_ou_acrescido_e_recusado(void)
 {
     static char texto[SALVAMENTO_TAMANHO_MAXIMO + 16];
@@ -928,11 +963,12 @@ static void test_cabecalho_e_palavras_erradas_sao_recusados(void)
     static char texto[SALVAMENTO_TAMANHO_MAXIMO];
     static char alterado[SALVAMENTO_TAMANHO_MAXIMO];
     static const char *const TROCAS[][2] = {
-        {"DMBSAVE 3", "DMBSAVE 1"},
-        {"DMBSAVE 3", "DMBSAVE 4"},
-        {"DMBSAVE 3", "dmbsave 2"},
-        {"DMBSAVE 3", "DMBSAVE 0"},
-        {"DMBSAVE 3", "DMBSAVE"},
+        {"DMBSAVE 4", "DMBSAVE 1"},
+        {"DMBSAVE 4", "DMBSAVE 3"},
+        {"DMBSAVE 4", "DMBSAVE 5"},
+        {"DMBSAVE 4", "dmbsave 2"},
+        {"DMBSAVE 4", "DMBSAVE 0"},
+        {"DMBSAVE 4", "DMBSAVE"},
         {"torneio", "torneo"},
         {"mao ", "mao x"},
         {"sementes", "semente"},
@@ -1147,8 +1183,8 @@ static void test_valores_fora_dos_limites_sao_recusados(void)
 static void test_numeros_malformados_sao_recusados(void)
 {
     static const char *const BASE =
-        "DMBSAVE 3\n"
-        "torneio 0 1990 2010 3 1 0\n"
+        "DMBSAVE 4\n"
+        "torneio 0 1990 2010 3 1 0 0\n"
         "mao 1234 1\n"
         "sementes 99\n"
         "ia 5 6\n"
@@ -1226,11 +1262,16 @@ static void test_numeros_malformados_sao_recusados(void)
         {"mao 1234", "mao 11111111111111111111111111111111"},
         {"2010 3 1 0", "2010 1000001 1 0"},
         {"2010 3 1 0", "2010 3 1 1000001"},
+        {"2010 3 1 0 0\n", "2010 3 1 0 2\n"},
+        {"2010 3 1 0 0\n", "2010 3 1 0 -1\n"},
+        {"2010 3 1 0 0\n", "2010 3 1 0\n"},
+        {"2010 3 1 0 0\n", "2010 3 1 0 0 0\n"},
         {"board 0", "board 6 2 0 3 0 4 0 5 0 6 0 7 0"}
     };
     static const char *const BOAS[][2] = {
         {"2010 3 1 0", "2010 1000000 1 0"},
         {"2010 3 1 0", "2010 3 1 1000000"},
+        {"2010 3 1 0 0\n", "2010 3 1 0 1\n"},
         {"board 0", "board 5 2 0 3 0 4 0 5 0 6 0"},
         {"mao 1234", "mao 4294967295"},
         {"sementes 99", "sementes 18446744073709551615"},
@@ -1249,6 +1290,7 @@ static void test_numeros_malformados_sao_recusados(void)
 
     CHECK(salvamento_interpretar(BASE, strlen(BASE), &lida));
     CHECK(lida.torneio.fichas_jogador == 1990 && lida.torneio.fichas_adversario == 2010);
+    CHECK(!lida.torneio.segunda_vida_usada);
     CHECK(lida.semente_da_mao == 1234 && lida.estado_das_sementes == 99);
     CHECK(lida.rng_acao == 5 && lida.rng_equidade == 6);
     CHECK(lida.situacao == PARTIDA_VEZ_DO_JOGADOR);
@@ -1325,7 +1367,7 @@ static void test_numeros_malformados_sao_recusados(void)
     }
 
     {
-        char sem_dados[sizeof "DMBSAVE 3\nfim\n"] = "DMBSAVE 3\nfim\n";
+        char sem_dados[sizeof "DMBSAVE 4\nfim\n"] = "DMBSAVE 4\nfim\n";
 
         CHECK(!salvamento_interpretar(sem_dados, sizeof sem_dados - 1, &lida));
         CHECK(!salvamento_interpretar("", 0, &lida));
@@ -1470,7 +1512,7 @@ static void test_arquivo_estragado_e_reconhecido(void)
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 3\ntorneio 0 1 2\n", arquivo);
+    fputs("DMBSAVE 4\ntorneio 0 1 2\n", arquivo);
     fclose(arquivo);
     CHECK(salvamento_existe(ARQUIVO_DE_TESTE));
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
@@ -1481,15 +1523,22 @@ static void test_arquivo_estragado_e_reconhecido(void)
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
+    /* Um salvamento da versão anterior (sem a segunda vida do chefe) não é reconhecido. */
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 4\n", arquivo);
+    fputs("DMBSAVE 3\n", arquivo);
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
-    fputs("DMBSAVE 3 extra\n", arquivo);
+    fputs("DMBSAVE 5\n", arquivo);
+    fclose(arquivo);
+    CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
+
+    arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
+    CHECK(arquivo != NULL);
+    fputs("DMBSAVE 4 extra\n", arquivo);
     fclose(arquivo);
     CHECK(!salvamento_existe(ARQUIVO_DE_TESTE));
 
@@ -1500,7 +1549,7 @@ static void test_arquivo_estragado_e_reconhecido(void)
     CHECK(!salvamento_ler(ARQUIVO_DE_TESTE, &lida));
 
     memset(grande, ' ', sizeof grande);
-    memcpy(grande, "DMBSAVE 3\n", 10);
+    memcpy(grande, "DMBSAVE 4\n", 10);
     arquivo = fopen(ARQUIVO_DE_TESTE, "wb");
     CHECK(arquivo != NULL);
     fwrite(grande, 1, sizeof grande, arquivo);
@@ -1661,6 +1710,7 @@ int main(void)
     test_exportar_recusa_o_que_nao_pode_continuar();
     test_refazer_recusa_dados_adulterados();
     test_o_estado_das_sementes_so_vale_para_as_proximas_maos();
+    test_a_segunda_vida_do_chefe_vai_e_volta_pelo_texto();
     test_texto_cortado_ou_acrescido_e_recusado();
     test_cabecalho_e_palavras_erradas_sao_recusados();
     test_valores_fora_dos_limites_sao_recusados();

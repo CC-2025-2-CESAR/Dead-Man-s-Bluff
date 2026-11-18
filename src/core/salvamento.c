@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define CABECALHO "DMBSAVE"
-#define VERSAO 3
+#define VERSAO 4
 #define TAMANHO_DO_TOKEN 32
 #define TAMANHO_DO_CAMINHO 512
 #define LIMITE_DE_CONTADORES 1000000
@@ -71,13 +71,14 @@ size_t salvamento_formatar(const PartidaSalva *salva, char *saida, size_t capaci
     }
 
     ok = anexar(saida, capacidade, &usado, "%s %d\n", CABECALHO, VERSAO) &&
-         anexar(saida, capacidade, &usado, "torneio %d %lld %lld %d %d %d\n",
+         anexar(saida, capacidade, &usado, "torneio %d %lld %lld %d %d %d %d\n",
                 salva->torneio.confronto,
                 (long long)salva->torneio.fichas_jogador,
                 (long long)salva->torneio.fichas_adversario,
                 salva->torneio.maos_jogadas,
                 salva->torneio.dealer,
-                salva->torneio.recuperacoes) &&
+                salva->torneio.recuperacoes,
+                salva->torneio.segunda_vida_usada ? 1 : 0) &&
          anexar(saida, capacidade, &usado, "mao %u %d\n",
                 salva->semente_da_mao,
                 (int)salva->situacao) &&
@@ -266,7 +267,7 @@ static bool ler_carta_ou_vazia(Leitor *leitor, PokerCard *carta)
 
 static bool ler_torneio(Leitor *leitor, Torneio *torneio)
 {
-    long long confronto, fichas_jogador, fichas_adversario, maos, dealer, recuperacoes;
+    long long confronto, fichas_jogador, fichas_adversario, maos, dealer, recuperacoes, segunda_vida;
 
     if (!esperar(leitor, "torneio") ||
         !ler_inteiro(leitor, 0, TORNEIO_CONFRONTOS - 1, &confronto) ||
@@ -274,7 +275,8 @@ static bool ler_torneio(Leitor *leitor, Torneio *torneio)
         !ler_inteiro(leitor, 0, POKER_MAX_STACK, &fichas_adversario) ||
         !ler_inteiro(leitor, 0, LIMITE_DE_CONTADORES, &maos) ||
         !ler_inteiro(leitor, TORNEIO_ASSENTO_JOGADOR, TORNEIO_ASSENTO_ADVERSARIO, &dealer) ||
-        !ler_inteiro(leitor, 0, LIMITE_DE_CONTADORES, &recuperacoes)) {
+        !ler_inteiro(leitor, 0, LIMITE_DE_CONTADORES, &recuperacoes) ||
+        !ler_inteiro(leitor, 0, 1, &segunda_vida)) {
         return false;
     }
 
@@ -284,6 +286,7 @@ static bool ler_torneio(Leitor *leitor, Torneio *torneio)
     torneio->maos_jogadas = (int)maos;
     torneio->dealer = (int)dealer;
     torneio->recuperacoes = (int)recuperacoes;
+    torneio->segunda_vida_usada = segunda_vida == 1;
     torneio->situacao = TORNEIO_EM_ANDAMENTO;
     return true;
 }

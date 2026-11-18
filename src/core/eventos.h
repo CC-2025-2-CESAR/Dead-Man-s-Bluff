@@ -22,6 +22,8 @@
  * EVENTO_POTE_PAGO: o pote foi pago e a mão terminou.
  * EVENTO_ROLETA: o jogador puxou o gatilho da roleta russa.
  * EVENTO_TRAPACA: uma trapaça foi tentada ou fez efeito.
+ * EVENTO_SEGUNDA_VIDA: o adversário ficou sem fichas, mas voltou com a
+ * segunda vida (só o chefe tem uma); vem depois de EVENTO_POTE_PAGO.
  */
 typedef enum {
     EVENTO_MAO_INICIADA = 0,
@@ -31,7 +33,8 @@ typedef enum {
     EVENTO_SHOWDOWN,
     EVENTO_POTE_PAGO,
     EVENTO_ROLETA,
-    EVENTO_TRAPACA
+    EVENTO_TRAPACA,
+    EVENTO_SEGUNDA_VIDA
 } TipoEvento;
 
 /**
@@ -170,6 +173,17 @@ typedef struct {
 } EventoTrapaca;
 
 /**
+ * Dados de EVENTO_SEGUNDA_VIDA.
+ *
+ * confronto: índice do confronto do adversário que voltou.
+ * fichas: fichas com que ele volta (ver torneio_segunda_vida).
+ */
+typedef struct {
+    int confronto;
+    PokerChips fichas;
+} EventoSegundaVida;
+
+/**
  * Um evento do jogo. O campo tipo diz qual membro da união vale.
  */
 typedef struct {
@@ -183,6 +197,7 @@ typedef struct {
         EventoPotePago pote;
         EventoRoleta roleta;
         EventoTrapaca trapaca;
+        EventoSegundaVida segunda_vida;
     };
 } EventoJogo;
 
