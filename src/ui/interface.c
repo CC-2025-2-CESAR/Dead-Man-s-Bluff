@@ -1,8 +1,10 @@
 #include "ui/interface.h"
 #include "ui/animacoes.h"
 #include "ui/cartas.h"
+#include "ui/painel.h"
 #include "raylib.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -19,8 +21,21 @@ static Texture2D textura_derrota = { 0 };
 static Texture2D textura_mesa = { 0 };
 static Texture2D textura_confirmacao_novo_jogo = { 0 };
 static Texture2D textura_configuracoes = { 0 };
-static Texture2D textura_trapacas = { 0 };
-static Texture2D textura_trapacas_fundo = { 0 };
+static Texture2D textura_dealer = { 0 };
+
+/* O dealer muda de cara com a suspeita: calmo (dealer.png), desconfiado e
+ * bravo. O revólver apontado para o jogador é o bravo armado: é ele quem
+ * cobra a trapaça descoberta na roleta russa. dealer_revolver.png foi feita a
+ * partir de dealer_bravo.png. */
+static Texture2D textura_dealer_desconfiado = { 0 };
+static Texture2D textura_dealer_bravo = { 0 };
+static Texture2D textura_dealer_revolver = { 0 };
+
+/* As três expressões do oponente do confronto em retratos_do_confronto, por
+ * estilo da IA (POKER_AI_CAUTIOUS, BALANCED e AGGRESSIVE). Carregadas só para
+ * o confronto em jogo, para não ocupar memória com as nove. */
+static Texture2D retratos[3];
+static int retratos_do_confronto = -1;
 
 static const Color COR_FUNDO = { 12, 46, 31, 255 };
 static const Color COR_OURO = { 212, 175, 55, 255 };
@@ -80,7 +95,7 @@ static Camera2D camera_da_janela(void)
     return camera;
 }
 
-#define BOTOES_MAXIMOS 40
+#define BOTOES_MAXIMOS 96
 #define BOTAO_NENHUM (-1)
 #define BOTAO_RESOLUCAO 100
 #define BOTAO_VOLTAR_CONFIGURACOES 200
@@ -218,8 +233,10 @@ void interface_iniciar(void)
     textura_mesa = LoadTexture("assets/images/mesa.png");
     textura_confirmacao_novo_jogo = LoadTexture("assets/images/confirmacao_novo_jogo.png");
     textura_configuracoes = LoadTexture("assets/images/configuracoes.png");
-    textura_trapacas = LoadTexture("assets/images/trapacas.png");
-    textura_trapacas_fundo = LoadTexture("assets/images/trapacas_fundo.png");
+    textura_dealer = LoadTexture("assets/images/dealer.png");
+    textura_dealer_desconfiado = LoadTexture("assets/images/dealer_desconfiado.png");
+    textura_dealer_bravo = LoadTexture("assets/images/dealer_bravo.png");
+    textura_dealer_revolver = LoadTexture("assets/images/dealer_revolver.png");
     cartas_iniciar();
     animacoes_iniciar();
     SetExitKey(KEY_NULL);
@@ -246,11 +263,24 @@ void interface_encerrar(void)
     if (textura_configuracoes.id != 0)
         UnloadTexture(textura_configuracoes);
 
-    if (textura_trapacas.id != 0)
-        UnloadTexture(textura_trapacas);
+    if (textura_dealer.id != 0)
+        UnloadTexture(textura_dealer);
 
-    if (textura_trapacas_fundo.id != 0)
-        UnloadTexture(textura_trapacas_fundo);
+    if (textura_dealer_desconfiado.id != 0)
+        UnloadTexture(textura_dealer_desconfiado);
+
+    if (textura_dealer_bravo.id != 0)
+        UnloadTexture(textura_dealer_bravo);
+
+    if (textura_dealer_revolver.id != 0)
+        UnloadTexture(textura_dealer_revolver);
+
+    for (int i = 0; i < 3; i++) {
+        if (retratos[i].id != 0)
+            UnloadTexture(retratos[i]);
+        retratos[i] = (Texture2D){ 0 };
+    }
+    retratos_do_confronto = -1;
 
     cartas_encerrar();
     animacoes_encerrar();
@@ -505,29 +535,84 @@ double interface_tempo_do_quadro(void)
 }
 
 #define BOTAO_TRAPACAS 308
-#define BOTAO_TRAPACA 400
-#define BOTAO_CARTA_DA_MAO 420
-#define BOTAO_VALOR_MENOS 430
-#define BOTAO_VALOR_MAIS 431
-#define BOTAO_NAIPE_ACIMA 432
-#define BOTAO_NAIPE_ABAIXO 433
-#define BOTAO_CONFIRMAR_CARTA 434
+#define BOTAO_TRAPACA 400            /* + grupo, de 0 a GRUPOS_DE_TRAPACA - 1 */
+#define BOTAO_USAR 410
+#define BOTAO_OPCAO_DO_SUBORNO 411   /* + opção, de 0 a 2 */
+#define BOTAO_CARTA_DA_MAO 420       /* + carta, 0 ou 1 */
 #define BOTAO_VOLTAR_DAS_TRAPACAS 435
+#define BOTAO_GRADE 440              /* + posição da carta na grade, de 0 a 51 */
+#define BOTAO_CONTINUAR_TRAPACA 500
+#define BOTAO_RECUAR 501
+#define BOTAO_FECHAR_AVISO 510
 
-/** Telas do menu das trapaças, que aparece por cima da mesa na vez do jogador. */
+/** As cinco trapaças do menu, na ordem em que aparecem. O suborno se abre em três serviços. */
+typedef enum {
+    GRUPO_BEBIDA = 0,
+    GRUPO_CUMPLICE,
+    GRUPO_MANGA,
+    GRUPO_SUBORNO,
+    GRUPO_MARCAR,
+    GRUPOS_DE_TRAPACA
+} GrupoDeTrapaca;
+
+static const TipoDePedido PEDIDO_DO_GRUPO[GRUPOS_DE_TRAPACA] = {
+    PEDIDO_BEBIDA, PEDIDO_CUMPLICE, PEDIDO_MANGA, PEDIDO_SUBORNO_MESA, PEDIDO_MARCAR_CARTA
+};
+
+static const TipoDePedido SERVICOS_DO_SUBORNO[3] = {
+    PEDIDO_SUBORNO_MESA, PEDIDO_SUBORNO_MAO, PEDIDO_SUBORNO_VER
+};
+
+/**
+ * Telas das trapaças, que aparecem por cima da mesa na vez do jogador:
+ * a lista com o detalhe da escolhida, os serviços do suborno, a carta da mão
+ * (marcar ou manga), a grade com as 52 cartas (suborno de carta) e, antes de
+ * qualquer trapaça, a tela de risco com CONTINUAR e RECUAR.
+ */
 typedef enum {
     TRAPACAS_FECHADAS = 0,
     TRAPACAS_MENU,
+    TRAPACAS_SUBORNO,
     TRAPACAS_CARTA_DA_MAO,
-    TRAPACAS_ESCOLHER_CARTA
+    TRAPACAS_ESCOLHER_CARTA,
+    TRAPACAS_RISCO
 } TelaDeTrapacas;
 
+/** O que aparece por cima da mesa depois de uma trapaça ou da roleta, até o jogador fechar. */
+typedef enum {
+    AVISO_NENHUM = 0,
+    AVISO_CUMPLICE,
+    AVISO_CARTAS_VISTAS,
+    AVISO_BEBIDA,
+    AVISO_DESCOBERTO,
+    AVISO_ROLETA
+} TipoDeAviso;
+
 static TelaDeTrapacas tela_de_trapacas;
+static TelaDeTrapacas tela_antes_do_risco;
 static TipoDePedido trapaca_em_andamento;
-static int destaque_das_trapacas;
+static int grupo_destacado;
+static int servico_destacado;
+static int carta_destacada;
 static int valor_do_seletor = 14;
 static int naipe_do_seletor = POKER_SPADES;
 static const char *aviso_das_trapacas;
+static PedidoTrapaca pedido_em_espera;
+static double inicio_da_tela;
+static double inicio_das_trapacas;
+
+static TipoDeAviso aviso_aberto;
+static double inicio_do_aviso;
+static bool aviso_tem_categoria;
+static PokerCategory aviso_categoria;
+static PokerCard aviso_cartas[2];
+static bool aviso_morreu;
+static int aviso_balas;
+
+/* Recado curto no alto da mesa (uma trapaça que não pede tela própria). */
+static char texto_do_recado[TAMANHO_LINHA];
+static Icone icone_do_recado;
+static double inicio_do_recado = -100.0;
 
 /* O que o desenho do quadro anterior viu da partida, para a leitura de entrada consultar. */
 static bool vez_do_jogador_vista;
@@ -586,6 +671,14 @@ static const char *motivo_da_trapaca(PokerStatus status)
     return "Indisponível agora.";
 }
 
+/** Troca a tela das trapaças e marca quando ela abriu, para as animações. */
+static void trocar_tela(TelaDeTrapacas nova)
+{
+    tela_de_trapacas = nova;
+    inicio_da_tela = GetTime();
+    aviso_das_trapacas = NULL;
+}
+
 static void fechar_trapacas(void)
 {
     tela_de_trapacas = TRAPACAS_FECHADAS;
@@ -598,126 +691,298 @@ static void abrir_trapacas(void)
     if (!vez_do_jogador_vista)
         return;
 
-    tela_de_trapacas = TRAPACAS_MENU;
-    destaque_das_trapacas = 0;
-    aviso_das_trapacas = NULL;
+    trocar_tela(TRAPACAS_MENU);
+    inicio_das_trapacas = inicio_da_tela;
+    grupo_destacado = 0;
 }
 
-/** Escolhe uma trapaça no menu: pede a carta que faltar, ou devolve o pedido pronto. */
-static void escolher_trapaca(TipoDePedido tipo, EntradaMesa *entrada)
+/** Se o grupo pode ser usado agora; o suborno vale se algum dos três serviços vale. */
+static PokerStatus situacao_do_grupo(int grupo)
 {
-    if (tipo <= PEDIDO_NENHUM || tipo >= PEDIDO_TOTAL)
+    PokerStatus primeiro = POKER_OK;
+
+    if (grupo < 0 || grupo >= GRUPOS_DE_TRAPACA)
+        return POKER_ERR_ARGUMENT;
+
+    if (grupo != GRUPO_SUBORNO)
+        return trapaca_status[PEDIDO_DO_GRUPO[grupo]];
+
+    for (int i = 0; i < 3; i++) {
+        PokerStatus status = trapaca_status[SERVICOS_DO_SUBORNO[i]];
+
+        if (status == POKER_OK)
+            return POKER_OK;
+        if (i == 0)
+            primeiro = status;
+    }
+
+    return primeiro;
+}
+
+/** Guarda o pedido pronto e mostra o risco antes de tentar. */
+static void mostrar_risco(PedidoTrapaca pedido)
+{
+    pedido_em_espera = pedido;
+    tela_antes_do_risco = tela_de_trapacas;
+    trocar_tela(TRAPACAS_RISCO);
+}
+
+/** Põe o cursor da grade numa carta que o jogador não vê, se a atual estiver à vista. */
+static void ajustar_cursor_da_grade(void)
+{
+    for (int tentativa = 0; tentativa < 52; tentativa++) {
+        PokerCard carta = { valor_do_seletor, (PokerSuit)naipe_do_seletor };
+
+        if (!carta_esta_a_vista(carta))
+            return;
+
+        valor_do_seletor = valor_do_seletor >= 14 ? 2 : valor_do_seletor + 1;
+        if (valor_do_seletor == 2)
+            naipe_do_seletor = (naipe_do_seletor + 3) % 4;
+    }
+}
+
+/** Escolhe uma das cinco trapaças: abre o passo seguinte ou o risco. */
+static void escolher_grupo(int grupo)
+{
+    PokerStatus status = situacao_do_grupo(grupo);
+    PokerCard nenhuma = { 0, POKER_CLUBS };
+
+    if (status != POKER_OK) {
+        aviso_das_trapacas = motivo_da_trapaca(status);
         return;
+    }
+
+    grupo_destacado = grupo;
+
+    switch ((GrupoDeTrapaca)grupo) {
+        case GRUPO_BEBIDA:
+        case GRUPO_CUMPLICE:
+            mostrar_risco(montar_pedido(PEDIDO_DO_GRUPO[grupo], 0, nenhuma));
+            break;
+
+        case GRUPO_MANGA:
+        case GRUPO_MARCAR:
+            trapaca_em_andamento = PEDIDO_DO_GRUPO[grupo];
+            carta_destacada = trapaca_vale_para_a_carta[trapaca_em_andamento][0] ? 0 : 1;
+            trocar_tela(TRAPACAS_CARTA_DA_MAO);
+            break;
+
+        case GRUPO_SUBORNO:
+            servico_destacado = 0;
+            for (int i = 0; i < 3; i++) {
+                if (trapaca_status[SERVICOS_DO_SUBORNO[i]] == POKER_OK) {
+                    servico_destacado = i;
+                    break;
+                }
+            }
+            trocar_tela(TRAPACAS_SUBORNO);
+            break;
+
+        case GRUPOS_DE_TRAPACA:
+            break;
+    }
+}
+
+/** Escolhe um dos três serviços do suborno. */
+static void escolher_servico(int servico)
+{
+    TipoDePedido tipo;
+
+    if (servico < 0 || servico > 2)
+        return;
+
+    servico_destacado = servico;
+    tipo = SERVICOS_DO_SUBORNO[servico];
 
     if (trapaca_status[tipo] != POKER_OK) {
         aviso_das_trapacas = motivo_da_trapaca(trapaca_status[tipo]);
         return;
     }
 
-    aviso_das_trapacas = NULL;
-
-    switch (tipo) {
-        case PEDIDO_MARCAR_CARTA:
-        case PEDIDO_MANGA:
-            trapaca_em_andamento = tipo;
-            tela_de_trapacas = TRAPACAS_CARTA_DA_MAO;
-            break;
-
-        case PEDIDO_SUBORNO_MESA:
-        case PEDIDO_SUBORNO_MAO:
-            trapaca_em_andamento = tipo;
-            tela_de_trapacas = TRAPACAS_ESCOLHER_CARTA;
-            break;
-
-        default:
-            entrada->pedido = montar_pedido(tipo, 0, (PokerCard){ 0, POKER_CLUBS });
-            fechar_trapacas();
-            break;
+    if (tipo == PEDIDO_SUBORNO_VER) {
+        mostrar_risco(montar_pedido(tipo, 0, (PokerCard){ 0, POKER_CLUBS }));
+        return;
     }
+
+    trapaca_em_andamento = tipo;
+    ajustar_cursor_da_grade();
+    trocar_tela(TRAPACAS_ESCOLHER_CARTA);
 }
 
-/** Lê o teclado e o mouse enquanto o menu das trapaças está aberto. */
+/** Escolhe a carta da mão (0 ou 1) para marcar ou trocar pela da manga. */
+static void escolher_carta_da_mao(int carta)
+{
+    if (carta < 0 || carta > 1)
+        return;
+
+    carta_destacada = carta;
+
+    if (!trapaca_vale_para_a_carta[trapaca_em_andamento][carta]) {
+        aviso_das_trapacas = trapaca_em_andamento == PEDIDO_MARCAR_CARTA
+            ? "Essa carta já está marcada." : "Essa carta não pode ir para a manga.";
+        return;
+    }
+
+    mostrar_risco(montar_pedido(trapaca_em_andamento, carta, (PokerCard){ 0, POKER_CLUBS }));
+}
+
+/** Pede ao dealer a carta do cursor da grade, se o jogador ainda não a vê. */
+static void escolher_carta_da_grade(void)
+{
+    PokerCard carta = { valor_do_seletor, (PokerSuit)naipe_do_seletor };
+
+    if (carta_esta_a_vista(carta)) {
+        aviso_das_trapacas = "Você já vê essa carta. Peça outra.";
+        return;
+    }
+
+    mostrar_risco(montar_pedido(trapaca_em_andamento, 0, carta));
+}
+
+/** Põe o cursor da grade na carta da posição (linha de espadas em cima, paus embaixo). */
+static void cursor_na_posicao(int posicao)
+{
+    naipe_do_seletor = 3 - posicao / 13;
+    valor_do_seletor = posicao % 13 + 2;
+}
+
+/** Lê o teclado e o mouse enquanto as telas das trapaças estão abertas. */
 static void ler_entrada_das_trapacas(EntradaMesa *entrada)
 {
     int botao = botao_clicado();
+    int sob = mouse_se_moveu() ? botao_sob_o_mouse() : BOTAO_NENHUM;
     bool voltar = IsKeyPressed(KEY_ESCAPE) || botao == BOTAO_VOLTAR_DAS_TRAPACAS;
+    bool confirmar = IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE);
+    bool acima = IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W);
+    bool abaixo = IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S);
 
-    if (tela_de_trapacas == TRAPACAS_MENU) {
-        if (voltar || IsKeyPressed(KEY_T)) {
-            fechar_trapacas();
-            return;
-        }
-
-        for (int i = 0; i < PEDIDO_TOTAL - 1; i++) {
-            if (IsKeyPressed(KEY_ONE + i))
-                escolher_trapaca((TipoDePedido)(i + 1), entrada);
-        }
-
-        if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W))
-            destaque_das_trapacas = (destaque_das_trapacas + PEDIDO_TOTAL - 2) % (PEDIDO_TOTAL - 1);
-        else if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S))
-            destaque_das_trapacas = (destaque_das_trapacas + 1) % (PEDIDO_TOTAL - 1);
-
-        if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
-            escolher_trapaca((TipoDePedido)(destaque_das_trapacas + 1), entrada);
-
-        if (mouse_se_moveu()) {
-            int sob = botao_sob_o_mouse();
-
-            if (sob > BOTAO_TRAPACA && sob < BOTAO_TRAPACA + PEDIDO_TOTAL)
-                destaque_das_trapacas = sob - BOTAO_TRAPACA - 1;
-        }
-
-        if (botao > BOTAO_TRAPACA && botao < BOTAO_TRAPACA + PEDIDO_TOTAL)
-            escolher_trapaca((TipoDePedido)(botao - BOTAO_TRAPACA), entrada);
-
-        return;
-    }
-
-    if (voltar) {
-        tela_de_trapacas = TRAPACAS_MENU;
-        aviso_das_trapacas = NULL;
-        return;
-    }
-
-    if (tela_de_trapacas == TRAPACAS_CARTA_DA_MAO) {
-        for (int i = 0; i < 2; i++) {
-            if (IsKeyPressed(KEY_ONE + i) || botao == BOTAO_CARTA_DA_MAO + i) {
-                if (!trapaca_vale_para_a_carta[trapaca_em_andamento][i]) {
-                    aviso_das_trapacas = "Essa carta já está marcada.";
-                    continue;
-                }
-
-                entrada->pedido = montar_pedido(trapaca_em_andamento, i, (PokerCard){ 0, POKER_CLUBS });
+    switch (tela_de_trapacas) {
+        case TRAPACAS_MENU:
+            if (voltar || IsKeyPressed(KEY_T)) {
                 fechar_trapacas();
                 return;
             }
-        }
 
-        return;
-    }
+            for (int i = 0; i < GRUPOS_DE_TRAPACA; i++) {
+                if (IsKeyPressed(KEY_ONE + i)) {
+                    escolher_grupo(i);
+                    return;
+                }
+            }
 
-    /* TRAPACAS_ESCOLHER_CARTA */
-    if (IsKeyPressed(KEY_RIGHT) || botao == BOTAO_VALOR_MAIS)
-        valor_do_seletor = valor_do_seletor >= 14 ? 2 : valor_do_seletor + 1;
-    else if (IsKeyPressed(KEY_LEFT) || botao == BOTAO_VALOR_MENOS)
-        valor_do_seletor = valor_do_seletor <= 2 ? 14 : valor_do_seletor - 1;
+            if (acima)
+                grupo_destacado = (grupo_destacado + GRUPOS_DE_TRAPACA - 1) % GRUPOS_DE_TRAPACA;
+            else if (abaixo)
+                grupo_destacado = (grupo_destacado + 1) % GRUPOS_DE_TRAPACA;
 
-    if (IsKeyPressed(KEY_UP) || botao == BOTAO_NAIPE_ACIMA)
-        naipe_do_seletor = (naipe_do_seletor + 1) % 4;
-    else if (IsKeyPressed(KEY_DOWN) || botao == BOTAO_NAIPE_ABAIXO)
-        naipe_do_seletor = (naipe_do_seletor + 3) % 4;
+            if (acima || abaixo)
+                aviso_das_trapacas = NULL;
 
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) || botao == BOTAO_CONFIRMAR_CARTA) {
-        PokerCard carta = { valor_do_seletor, (PokerSuit)naipe_do_seletor };
+            if (sob >= BOTAO_TRAPACA && sob < BOTAO_TRAPACA + GRUPOS_DE_TRAPACA)
+                grupo_destacado = sob - BOTAO_TRAPACA;
 
-        if (carta_esta_a_vista(carta)) {
-            aviso_das_trapacas = "Você já vê essa carta. Peça outra.";
+            if (botao >= BOTAO_TRAPACA && botao < BOTAO_TRAPACA + GRUPOS_DE_TRAPACA) {
+                grupo_destacado = botao - BOTAO_TRAPACA;
+                aviso_das_trapacas = NULL;
+            }
+
+            if (confirmar || botao == BOTAO_USAR)
+                escolher_grupo(grupo_destacado);
             return;
-        }
 
-        entrada->pedido = montar_pedido(trapaca_em_andamento, 0, carta);
-        fechar_trapacas();
+        case TRAPACAS_SUBORNO:
+            if (voltar) {
+                trocar_tela(TRAPACAS_MENU);
+                return;
+            }
+
+            for (int i = 0; i < 3; i++) {
+                if (IsKeyPressed(KEY_ONE + i)) {
+                    escolher_servico(i);
+                    return;
+                }
+            }
+
+            if (acima)
+                servico_destacado = (servico_destacado + 2) % 3;
+            else if (abaixo)
+                servico_destacado = (servico_destacado + 1) % 3;
+
+            if (sob >= BOTAO_OPCAO_DO_SUBORNO && sob < BOTAO_OPCAO_DO_SUBORNO + 3)
+                servico_destacado = sob - BOTAO_OPCAO_DO_SUBORNO;
+
+            if (botao >= BOTAO_OPCAO_DO_SUBORNO && botao < BOTAO_OPCAO_DO_SUBORNO + 3)
+                escolher_servico(botao - BOTAO_OPCAO_DO_SUBORNO);
+            else if (confirmar || botao == BOTAO_USAR)
+                escolher_servico(servico_destacado);
+            return;
+
+        case TRAPACAS_CARTA_DA_MAO:
+            if (voltar) {
+                trocar_tela(TRAPACAS_MENU);
+                return;
+            }
+
+            if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_RIGHT))
+                carta_destacada = 1 - carta_destacada;
+
+            for (int i = 0; i < 2; i++) {
+                if (IsKeyPressed(KEY_ONE + i) || botao == BOTAO_CARTA_DA_MAO + i) {
+                    escolher_carta_da_mao(i);
+                    return;
+                }
+            }
+
+            if (sob == BOTAO_CARTA_DA_MAO || sob == BOTAO_CARTA_DA_MAO + 1)
+                carta_destacada = sob - BOTAO_CARTA_DA_MAO;
+
+            if (confirmar || botao == BOTAO_USAR)
+                escolher_carta_da_mao(carta_destacada);
+            return;
+
+        case TRAPACAS_ESCOLHER_CARTA:
+            if (voltar) {
+                trocar_tela(TRAPACAS_SUBORNO);
+                return;
+            }
+
+            if (IsKeyPressed(KEY_RIGHT))
+                valor_do_seletor = valor_do_seletor >= 14 ? 2 : valor_do_seletor + 1;
+            else if (IsKeyPressed(KEY_LEFT))
+                valor_do_seletor = valor_do_seletor <= 2 ? 14 : valor_do_seletor - 1;
+
+            /* As linhas da grade vão de espadas, em cima, a paus. */
+            if (acima)
+                naipe_do_seletor = (naipe_do_seletor + 1) % 4;
+            else if (abaixo)
+                naipe_do_seletor = (naipe_do_seletor + 3) % 4;
+
+            if (sob >= BOTAO_GRADE && sob < BOTAO_GRADE + 52)
+                cursor_na_posicao(sob - BOTAO_GRADE);
+
+            if (botao >= BOTAO_GRADE && botao < BOTAO_GRADE + 52) {
+                cursor_na_posicao(botao - BOTAO_GRADE);
+                escolher_carta_da_grade();
+            } else if (confirmar || botao == BOTAO_USAR) {
+                escolher_carta_da_grade();
+            }
+            return;
+
+        case TRAPACAS_RISCO:
+            if (voltar || botao == BOTAO_RECUAR) {
+                trocar_tela(tela_antes_do_risco);
+                return;
+            }
+
+            if (confirmar || botao == BOTAO_CONTINUAR_TRAPACA) {
+                entrada->pedido = pedido_em_espera;
+                fechar_trapacas();
+            }
+            return;
+
+        case TRAPACAS_FECHADAS:
+            return;
     }
 }
 
@@ -728,6 +993,17 @@ EntradaMesa interface_mesa_ler_entrada(void)
     if (carta_marcada_ampliada >= 0) {
         if (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             carta_marcada_ampliada = -1;
+        return entrada;
+    }
+
+    if (aviso_aberto != AVISO_NENHUM) {
+        /* Um instante de espera evita fechar o aviso com a mesma tecla que o abriu; na
+         * roleta, a espera cobre o giro do tambor, para o resultado sempre aparecer. */
+        bool pode_fechar = painel_progresso(inicio_do_aviso, aviso_aberto == AVISO_ROLETA ? 1.2 : 0.4) >= 1.0f;
+
+        if (pode_fechar && (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE) ||
+                            IsKeyPressed(KEY_ESCAPE) || botao_clicado() == BOTAO_FECHAR_AVISO))
+            aviso_aberto = AVISO_NENHUM;
         return entrada;
     }
 
@@ -820,7 +1096,7 @@ EntradaMesa interface_mesa_ler_entrada(void)
 
 bool interface_mesa_modal_aberto(void)
 {
-    return carta_marcada_ampliada >= 0;
+    return carta_marcada_ampliada >= 0 || aviso_aberto != AVISO_NENHUM;
 }
 
 /**
@@ -902,6 +1178,8 @@ void interface_mesa_limpar_eventos(void)
     marcou_carta_do_adversario[1] = false;
     carta_marcada_ampliada = -1;
     cartas_do_adversario_visiveis = false;
+    aviso_aberto = AVISO_NENHUM;
+    inicio_do_recado = -100.0;
     fechar_trapacas();
     animacoes_cancelar();
 }
@@ -1017,6 +1295,74 @@ static void linha_da_trapaca(const EventoTrapaca *trapaca, char *linha, size_t t
     }
 }
 
+static Icone icone_do_pedido(TipoDePedido pedido)
+{
+    switch (pedido) {
+        case PEDIDO_BEBIDA: return ICONE_GARRAFA;
+        case PEDIDO_CUMPLICE: return ICONE_BINOCULO;
+        case PEDIDO_MARCAR_CARTA: return ICONE_MARCA;
+        case PEDIDO_SUBORNO_MESA: return ICONE_CARTA_MESA;
+        case PEDIDO_SUBORNO_MAO: return ICONE_CARTA_MAO;
+        case PEDIDO_SUBORNO_VER: return ICONE_OLHO;
+        case PEDIDO_MANGA: return ICONE_AS;
+        case PEDIDO_NENHUM:
+        case PEDIDO_TOTAL:
+            break;
+    }
+
+    return ICONE_MASCARA;
+}
+
+static void abrir_aviso(TipoDeAviso tipo)
+{
+    aviso_aberto = tipo;
+    inicio_do_aviso = GetTime();
+}
+
+static void mostrar_recado(const char *texto, Icone icone)
+{
+    snprintf(texto_do_recado, sizeof texto_do_recado, "%s", texto);
+    icone_do_recado = icone;
+    inicio_do_recado = GetTime();
+}
+
+/** Decide como mostrar o que uma trapaça fez: uma tela própria ou um recado na mesa. */
+static void mostrar_resultado_da_trapaca(const EventoTrapaca *trapaca, const char *linha)
+{
+    if (trapaca->resultado == TRAPACA_DESCOBERTA) {
+        abrir_aviso(AVISO_DESCOBERTO);
+        return;
+    }
+
+    if (trapaca->resultado == TRAPACA_SUCESSO && !trapaca->na_distribuicao) {
+        switch (trapaca->pedido) {
+            case PEDIDO_CUMPLICE:
+                aviso_tem_categoria = trapaca->tem_categoria;
+                aviso_categoria = trapaca->categoria;
+                abrir_aviso(AVISO_CUMPLICE);
+                return;
+
+            case PEDIDO_SUBORNO_VER:
+                if (trapaca->quantidade_de_cartas == 2) {
+                    aviso_cartas[0] = trapaca->cartas[0];
+                    aviso_cartas[1] = trapaca->cartas[1];
+                    abrir_aviso(AVISO_CARTAS_VISTAS);
+                    return;
+                }
+                break;
+
+            case PEDIDO_BEBIDA:
+                abrir_aviso(AVISO_BEBIDA);
+                return;
+
+            default:
+                break;
+        }
+    }
+
+    mostrar_recado(linha, icone_do_pedido(trapaca->pedido));
+}
+
 void interface_mesa_registrar_evento(const EventoJogo *evento)
 {
     char linha[TAMANHO_LINHA];
@@ -1095,6 +1441,7 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
 
             linha_da_trapaca(&evento->trapaca, linha, sizeof linha);
             guardar_linha(linha);
+            mostrar_resultado_da_trapaca(&evento->trapaca, linha);
             break;
 
         case EVENTO_ROLETA:
@@ -1108,6 +1455,9 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
             }
 
             guardar_linha(linha);
+            aviso_morreu = evento->roleta.morreu;
+            aviso_balas = evento->roleta.balas_depois;
+            abrir_aviso(AVISO_ROLETA);
             break;
 
         case EVENTO_CARTAS_DISTRIBUIDAS:
@@ -1152,49 +1502,99 @@ static void desenhar_linha(const char *texto, int *y, Color cor)
     *y += 32;
 }
 
-/**
- * Desenha a linha de ações da vez do jogador, cada ação como um botão ao
- * lado do outro. O valor da aposta e os botões de menos e mais só aparecem
- * se ele pode apostar.
- */
-static void desenhar_acoes_do_jogador(int y, PokerChips aposta_escolhida)
+/* Os botões da vez ficam no canto de baixo à direita, sobre a mesa, como nos mockups. */
+#define BOTOES_DA_MESA_Y 640.0f
+#define BOTOES_DA_MESA_ALTURA 50.0f
+#define BOTOES_DA_MESA_DIREITA 1250.0f
+
+/** Botão da mesa, no mesmo estilo das telas das trapaças. Só registra o clique se estiver ativo. */
+static void botao_da_mesa(Rectangle area, const char *rotulo, bool principal, bool ativo, int id)
 {
-    char rotulo[64];
-    int x = 28;
-    int tamanho = 19;
+    painel_botao(area, rotulo, 19, principal, mouse_sobre(area), ativo);
 
-    DrawText("SUA VEZ:", x, y, tamanho, COR_OURO);
-    x += MeasureText("SUA VEZ:", tamanho) + 14;
-
-    x += botao_de_texto("[F] desistir", x, y, tamanho, COR_OURO, BOTAO_DESISTIR) + 14;
-    x += botao_de_texto("[C] passar ou pagar", x, y, tamanho, COR_OURO, BOTAO_PASSAR_OU_PAGAR) + 14;
-
-    if (aposta_escolhida > 0) {
-        snprintf(rotulo, sizeof rotulo, "[R] apostar %lld", (long long)aposta_escolhida);
-        x += botao_de_texto(rotulo, x, y, tamanho, COR_OURO, BOTAO_APOSTAR) + 10;
-        x += botao_de_texto("[-]", x, y, tamanho, COR_OURO, BOTAO_DIMINUIR) + 10;
-        x += botao_de_texto("[+]", x, y, tamanho, COR_OURO, BOTAO_AUMENTAR) + 14;
-    }
-
-    x += botao_de_texto("[A] all-in", x, y, tamanho, COR_OURO, BOTAO_ALL_IN) + 14;
-    botao_de_texto("[T] trapaças", x, y, tamanho, COR_OURO, BOTAO_TRAPACAS);
+    if (ativo)
+        registrar_botao(area, id);
 }
 
-/** Escreve o texto de um valor de carta, de 2 a 14. */
-static const char *texto_do_valor(int valor)
+/** Botão único no canto da mesa (próxima mão, recomeçar...), em vermelho. */
+static void botao_unico_da_mesa(const char *rotulo, int id)
+{
+    float largura = (float)MeasureText(rotulo, 19) + 100.0f;
+
+    botao_da_mesa((Rectangle){ BOTOES_DA_MESA_DIREITA - largura, BOTOES_DA_MESA_Y, largura, BOTOES_DA_MESA_ALTURA },
+                  rotulo, true, true, id);
+}
+
+/**
+ * Ações da vez do jogador, alinhadas à direita: DESISTIR, PASSAR ou IGUALAR
+ * (com o valor), APOSTAR ou AUMENTAR (vermelho), ALL-IN e o botão da máscara,
+ * que abre as trapaças. A que não vale agora aparece apagada. O valor da
+ * aposta fica numa barrinha com menos e mais em cima do APOSTAR/AUMENTAR.
+ */
+static void desenhar_acoes_do_jogador(const Partida *partida, PokerChips aposta_escolhida)
+{
+    PokerLegalActions legal;
+    bool apostar = aposta_escolhida > 0;
+    char pagar[32];
+    char valor[24];
+    float y = BOTOES_DA_MESA_Y;
+    float h = BOTOES_DA_MESA_ALTURA;
+    float vao = 12.0f;
+    Rectangle mascara = { BOTOES_DA_MESA_DIREITA - 64.0f, y, 64.0f, h };
+    Rectangle all_in = { mascara.x - vao - 120.0f, y, 120.0f, h };
+    Rectangle aumentar = { all_in.x - vao - 170.0f, y, 170.0f, h };
+    Rectangle igualar = { aumentar.x - vao - 190.0f, y, 190.0f, h };
+    Rectangle desistir = { igualar.x - vao - 150.0f, y, 150.0f, h };
+
+    if (partida_acoes_legais(partida, &legal) != POKER_OK)
+        memset(&legal, 0, sizeof legal);
+
+    if (legal.check)
+        snprintf(pagar, sizeof pagar, "PASSAR");
+    else
+        snprintf(pagar, sizeof pagar, "IGUALAR %lld", (long long)legal.call_cost);
+
+    botao_da_mesa(desistir, "DESISTIR", false, legal.fold, BOTAO_DESISTIR);
+    botao_da_mesa(igualar, pagar, false, legal.check || legal.call, BOTAO_PASSAR_OU_PAGAR);
+    botao_da_mesa(aumentar, partida->mao.mesa.current_bet > 0 ? "AUMENTAR" : "APOSTAR", true, apostar, BOTAO_APOSTAR);
+    botao_da_mesa(all_in, "ALL-IN", false, legal.all_in, BOTAO_ALL_IN);
+
+    painel_botao(mascara, "", 19, false, mouse_sobre(mascara), true);
+    painel_icone(ICONE_MASCARA, (Rectangle){ mascara.x + 4.0f, mascara.y - 4.0f, mascara.width - 8.0f, h + 8.0f },
+                 PAINEL_OURO_VIVO);
+    registrar_botao(mascara, BOTAO_TRAPACAS);
+
+    if (apostar) {
+        Rectangle barra = { aumentar.x, y - 40.0f, aumentar.width, 32.0f };
+        Rectangle menos = { barra.x, barra.y, 36.0f, barra.height };
+        Rectangle mais = { barra.x + barra.width - 36.0f, barra.y, 36.0f, barra.height };
+        int largura;
+
+        snprintf(valor, sizeof valor, "%lld", (long long)aposta_escolhida);
+        largura = MeasureText(valor, 18);
+        DrawRectangleRec(barra, Fade(PAINEL_FUNDO, 0.92f));
+        DrawRectangleLinesEx(barra, 1.0f, Fade(PAINEL_OURO, 0.7f));
+        botao_da_mesa(menos, "-", false, true, BOTAO_DIMINUIR);
+        botao_da_mesa(mais, "+", false, true, BOTAO_AUMENTAR);
+        DrawText(valor, (int)(barra.x + (barra.width - (float)largura) / 2.0f), (int)(barra.y + 7.0f), 18, PAINEL_TEXTO);
+    }
+}
+
+/** Escreve o nome de uma carta por extenso, como "Ás de espadas". */
+static void nome_da_carta(PokerCard carta, char *saida, size_t tamanho)
 {
     static const char *VALORES[] = {
-        "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"
+        "Dois", "Três", "Quatro", "Cinco", "Seis", "Sete", "Oito", "Nove", "Dez",
+        "Valete", "Dama", "Rei", "Ás"
     };
-
-    return valor >= 2 && valor <= 14 ? VALORES[valor - 2] : "?";
-}
-
-static const char *texto_do_naipe(int naipe)
-{
     static const char *NAIPES[] = { "paus", "ouros", "copas", "espadas" };
 
-    return naipe >= 0 && naipe <= 3 ? NAIPES[naipe] : "?";
+    if (carta.rank < 2 || carta.rank > 14 || (int)carta.suit < 0 || (int)carta.suit > 3) {
+        snprintf(saida, tamanho, "?");
+        return;
+    }
+
+    snprintf(saida, tamanho, "%s de %s", VALORES[carta.rank - 2], NAIPES[carta.suit]);
 }
 
 /** Anota o que o menu das trapaças precisa saber da partida, e o fecha se a vez não é do jogador. */
@@ -1247,155 +1647,1071 @@ static void registrar_disponibilidade(const Partida *partida)
         fechar_trapacas();
 }
 
-/** Desenha o menu das trapaças por cima da mesa, na tela em que ele está. */
-static void desenhar_painel_das_trapacas(const Partida *partida)
+/* ------------------------------------------------------------------------
+ * Telas das trapaças, avisos de resultado, roleta e o que a mesa mostra do
+ * oponente (expressão e suspeita). Desenhadas no estilo noir de painel.h,
+ * por cima da mesa, com as expressões do oponente e o dealer do Matheus.
+ * ------------------------------------------------------------------------ */
+
+static const char *NOME_DO_GRUPO[GRUPOS_DE_TRAPACA] = {
+    "BATIZAR A BEBIDA", "CÚMPLICE", "ÁS NA MANGA", "SUBORNO DO DEALER", "MARCAR CARTA"
+};
+
+static const char *RESUMO_DO_GRUPO[GRUPOS_DE_TRAPACA] = {
+    "Embriaga o adversário por 3 mãos.",
+    "Conta que mão o adversário tem.",
+    "Troca uma carta pela da manga.",
+    "Informação ou cartas, por um preço.",
+    "Reconheça sua carta na mão dele."
+};
+
+static const char *DESCRICAO_DO_GRUPO[GRUPOS_DE_TRAPACA] = {
+    "Adultere a bebida do adversário. Se ninguém perceber, ele fica embriagado por 3 mãos: joga pior e desconfia menos de você.",
+    "Um cúmplice na plateia espia as cartas do adversário e faz um sinal: você fica sabendo que mão ele tem agora. O preço sobe a cada uso no mesmo nível de blind.",
+    "Troque uma carta da sua mão pela carta escondida na manga. A carta que sai fica guardada para a próxima vez.",
+    "O dealer trabalha para quem paga: põe uma carta na mesa, te entrega uma carta ou mostra as cartas do adversário.",
+    "Marque uma carta da sua mão. Por 5 mãos, se ela cair com o adversário, você reconhece o verso."
+};
+
+static const Icone ICONE_DO_GRUPO[GRUPOS_DE_TRAPACA] = {
+    ICONE_GARRAFA, ICONE_BINOCULO, ICONE_AS, ICONE_SUBORNO, ICONE_MARCA
+};
+
+static const char *NOME_DO_SERVICO[3] = {
+    "Pôr uma carta na mesa", "Receber uma carta", "Ver as cartas dele"
+};
+
+static const Icone ICONE_DO_SERVICO[3] = { ICONE_CARTA_MESA, ICONE_CARTA_MAO, ICONE_OLHO };
+
+/* Índices por PokerAIStyle: CAUTIOUS, BALANCED, AGGRESSIVE. */
+static const char *NOMES_DOS_ESTILOS[3] = { "MEDROSO", "DESCONFIADO", "AGRESSIVO" };
+static const char *ARQUIVOS_DOS_ESTILOS[3] = { "medroso", "desconfiado", "agressivo" };
+
+/* Recortes das imagens, em frações da largura e da altura. */
+static const Rectangle RETRATO_INTEIRO = { 0.0f, 0.0f, 1.0f, 1.0f };
+static const Rectangle DEALER_RECORTE = { 0.25f, 0.0f, 0.5f, 1.0f };
+static const Rectangle DEALER_BUSTO = { 0.18f, 0.0f, 0.64f, 1.0f };
+
+/* Boca do cano em dealer_revolver.png, em frações da largura e da altura. */
+static const Vector2 BOCA_DO_CANO = { 622.0f / 1754.0f, 564.0f / 897.0f };
+
+static int grupo_no_detalhe = -1;
+static double inicio_do_detalhe;
+static float risco_mostrado;
+static float brilho_das_linhas[GRUPOS_DE_TRAPACA];
+static int estilo_na_mesa = -1;
+static double inicio_da_troca_de_estilo;
+
+static float limitar(float valor, float minimo, float maximo)
 {
-    static const char *ROTULOS[] = {
-        "Batizar a bebida do adversário",
-        "Cúmplice",
-        "Marcar uma carta",
-        "Subornar o dealer: carta na mesa",
-        "Subornar o dealer: carta na sua mão",
-        "Subornar o dealer: ver as cartas dele",
-        "Ás na manga"
-    };
-    static const char *DESCRICOES[] = {
-        "Embriaga o adversário por 3 mãos: ele joga pior e desconfia menos.",
-        "O cúmplice conta que tipo de mão o adversário tem agora.",
-        "Marca uma carta sua para reconhecê-la na mão dele nas próximas mãos.",
-        "O dealer põe a carta escolhida como a primeira da próxima rua do board.",
-        "O dealer põe a carta escolhida na sua mão, na próxima mão.",
-        "O dealer mostra as duas cartas do adversário.",
-        "Troca uma carta da sua mão pela carta da manga."
-    };
+    return valor < minimo ? minimo : (valor > maximo ? maximo : valor);
+}
+
+/** Passo de uma aproximação suave, com a velocidade pedida por segundo. */
+static float passo_do_quadro(float velocidade)
+{
+    return limitar(GetFrameTime() * velocidade, 0.0f, 1.0f);
+}
+
+static int indice_do_estilo(PokerAIStyle estilo)
+{
+    int indice = (int)estilo;
+
+    return indice >= 0 && indice < 3 ? indice : (int)POKER_AI_BALANCED;
+}
+
+/** Carrega as três expressões do oponente do confronto, se ainda não estão carregadas. */
+static void carregar_retratos(int confronto)
+{
+    if (confronto == retratos_do_confronto || confronto < 0 || confronto >= TORNEIO_CONFRONTOS)
+        return;
+
+    for (int i = 0; i < 3; i++) {
+        if (retratos[i].id != 0)
+            UnloadTexture(retratos[i]);
+
+        retratos[i] = LoadTexture(TextFormat("assets/images/adversario_%d_%s.png",
+                                             confronto + 1, ARQUIVOS_DOS_ESTILOS[i]));
+    }
+
+    retratos_do_confronto = confronto;
+}
+
+static Texture2D retrato_do_oponente(const Partida *partida, PokerAIStyle estilo)
+{
+    carregar_retratos(partida->torneio.confronto);
+    return retratos[indice_do_estilo(estilo)];
+}
+
+/** Largura que um recorte ocupa com a altura pedida, mantendo a proporção. */
+static float largura_do_recorte(Texture2D textura, Rectangle janela, float altura)
+{
+    if (textura.id == 0 || janela.height <= 0.0f)
+        return 0.0f;
+
+    return altura * (janela.width * (float)textura.width) / (janela.height * (float)textura.height);
+}
+
+/**
+ * Desenha um recorte de uma imagem com a altura pedida, mantendo a
+ * proporção. A posição é o canto de cima à esquerda; com rotação, a imagem
+ * gira em torno do centro de baixo (como alguém balançando na cadeira).
+ */
+static void desenhar_recorte(Texture2D textura, Rectangle janela, Vector2 posicao, float altura,
+                             float rotacao, Color tinta)
+{
+    Rectangle fonte;
+    float largura = largura_do_recorte(textura, janela, altura);
+    Vector2 origem = { largura / 2.0f, altura };
+
+    if (largura <= 0.0f)
+        return;
+
+    fonte = (Rectangle){ janela.x * (float)textura.width, janela.y * (float)textura.height,
+                         janela.width * (float)textura.width, janela.height * (float)textura.height };
+    DrawTexturePro(textura, fonte,
+                   (Rectangle){ posicao.x + origem.x, posicao.y + origem.y, largura, altura },
+                   origem, rotacao, tinta);
+}
+
+/** Escurece a mesa por trás das telas por cima dela e bloqueia os cliques na mesa. */
+static void escurecer_mesa(float opacidade)
+{
+    total_de_botoes = 0;
+    cursor_sobre_botao = false;
+    DrawRectangle(0, 0, LARGURA_TELA, ALTURA_TELA, Fade(BLACK, 0.66f * opacidade));
+    painel_vinheta(LARGURA_TELA, ALTURA_TELA, BLACK, 0.8f * opacidade);
+}
+
+/** Botão com moldura que também registra o clique. */
+static void botao_de_painel(Rectangle area, const char *rotulo, int tamanho, bool principal, bool ativo, int id)
+{
+    painel_botao(area, rotulo, tamanho, principal, mouse_sobre(area), ativo);
+
+    if (ativo)
+        registrar_botao(area, id);
+}
+
+/** Índice de SistemaRisco.usos_trapaca de um pedido, ou -1. */
+static int indice_de_risco(TipoDePedido tipo)
+{
+    switch (tipo) {
+        case PEDIDO_BEBIDA: return PROB_TRAPACA_SPIKE_DRINK;
+        case PEDIDO_CUMPLICE: return PROB_TRAPACA_CUMPLICE;
+        case PEDIDO_MARCAR_CARTA: return PROB_TRAPACA_MARCAR_CARTA;
+        case PEDIDO_SUBORNO_MESA:
+        case PEDIDO_SUBORNO_MAO:
+        case PEDIDO_SUBORNO_VER: return PROB_TRAPACA_SUBORNO_DEALER;
+        case PEDIDO_MANGA: return PROB_TRAPACA_CARTA_MANGA;
+        case PEDIDO_NENHUM:
+        case PEDIDO_TOTAL:
+            break;
+    }
+
+    return -1;
+}
+
+static int usos_do_grupo(const Partida *partida, int grupo)
+{
+    int indice = indice_de_risco(PEDIDO_DO_GRUPO[grupo]);
+
+    return indice >= 0 ? partida->risco.usos_trapaca[indice] : 0;
+}
+
+/** Cor de uma chance de ser descoberto: dourada, laranja ou vermelha. */
+static Color cor_do_risco(int chance)
+{
+    if (chance < 20)
+        return PAINEL_OURO_VIVO;
+    if (chance < 45)
+        return (Color){ 222, 126, 54, 255 };
+    return PAINEL_VERMELHO_VIVO;
+}
+
+static Color cor_do_estilo(int estilo)
+{
+    if (estilo == (int)POKER_AI_AGGRESSIVE)
+        return PAINEL_VERMELHO_VIVO;
+    if (estilo == (int)POKER_AI_CAUTIOUS)
+        return (Color){ 150, 186, 214, 255 };
+    return PAINEL_OURO_VIVO;
+}
+
+/** Bolinhas de uso de uma trapaça neste confronto (até três aparecem). */
+static void desenhar_usos(int usos, float x, float y, float opacidade)
+{
+    for (int i = 0; i < 3; i++) {
+        Vector2 centro = { x + (float)i * 14.0f, y };
+
+        if (i < usos)
+            DrawCircleV(centro, 4.5f, Fade(PAINEL_OURO_VIVO, opacidade));
+        else
+            DrawCircleLines((int)centro.x, (int)centro.y, 4.5f, Fade(PAINEL_OURO, 0.7f * opacidade));
+    }
+}
+
+/** Custo alinhado à direita, com uma ficha na frente; "grátis" se não custa nada. */
+static void desenhar_custo(PokerChips custo, float direita, float y, int tamanho, float opacidade)
+{
+    char texto[32];
+    int largura;
+
+    if (custo > 0)
+        snprintf(texto, sizeof texto, "%lld", (long long)custo);
+    else
+        snprintf(texto, sizeof texto, "grátis");
+
+    largura = MeasureText(texto, tamanho);
+    DrawText(texto, (int)(direita - (float)largura), (int)y, tamanho, Fade(PAINEL_TEXTO, opacidade));
+
+    if (custo > 0)
+        painel_icone(ICONE_FICHA, (Rectangle){ direita - (float)largura - (float)tamanho - 6.0f, y - 1.0f,
+                                               (float)tamanho, (float)tamanho },
+                     Fade(PAINEL_VERMELHO_VIVO, opacidade));
+}
+
+/** Um ponto da imagem (em frações) na tela, onde o recorte foi desenhado. */
+static Vector2 ponto_no_recorte(Texture2D textura, Rectangle janela, Vector2 posicao, float altura, Vector2 fracao)
+{
+    float largura = largura_do_recorte(textura, janela, altura);
+
+    return (Vector2){ posicao.x + (fracao.x - janela.x) / janela.width * largura,
+                      posicao.y + (fracao.y - janela.y) / janela.height * altura };
+}
+
+/** Texto centralizado na largura de uma área. */
+static void texto_no_meio(const char *texto, Rectangle area, float y, int tamanho, Color cor)
+{
+    DrawText(texto, (int)(area.x + (area.width - (float)MeasureText(texto, tamanho)) / 2.0f), (int)y, tamanho, cor);
+}
+
+static int suspeita_media(const Partida *partida);
+
+/**
+ * O dealer conforme a chance de ser pego, com os mesmos cortes das cores do
+ * risco: calmo abaixo de 20%, desconfiado até 45% e bravo dali para cima.
+ */
+static Texture2D dealer_pela_suspeita(int chance)
+{
+    if (chance >= 45 && textura_dealer_bravo.id != 0)
+        return textura_dealer_bravo;
+    if (chance >= 20 && textura_dealer_desconfiado.id != 0)
+        return textura_dealer_desconfiado;
+    return textura_dealer;
+}
+
+/** O dealer grande à direita, por trás dos painéis das trapaças: vigia a mesa com a cara da suspeita. */
+static void desenhar_dealer_ao_fundo(const Partida *partida, float abertura, Color tinta)
+{
+    Vector2 posicao = { 700.0f + (1.0f - painel_suave(abertura)) * 60.0f, 110.0f };
+
+    desenhar_recorte(dealer_pela_suspeita(suspeita_media(partida)), DEALER_BUSTO, posicao, 610.0f, 0.0f,
+                     Fade(tinta, abertura));
+    DrawRectangleGradientH(700, 110, 320, 610, Fade(BLACK, 0.8f * abertura), Fade(BLACK, 0.0f));
+}
+
+/** Lista das cinco trapaças, à esquerda. */
+static void desenhar_lista_de_trapacas(const Partida *partida, float abertura, bool interativa)
+{
+    float deslize = (1.0f - painel_suave(abertura)) * -50.0f;
+    Rectangle painel = { 32.0f + deslize, 80.0f, 476.0f, 584.0f };
+    float passo = passo_do_quadro(12.0f);
+
+    painel_desenhar(painel, abertura);
+    painel_icone(ICONE_MASCARA, (Rectangle){ painel.x + 22.0f, painel.y + 18.0f, 44.0f, 34.0f },
+                 Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText("TRAPACEAR", (int)(painel.x + 78.0f), (int)(painel.y + 20.0f), 32, Fade(PAINEL_OURO_VIVO, abertura));
+    DrawLineEx((Vector2){ painel.x + 22.0f, painel.y + 64.0f },
+               (Vector2){ painel.x + painel.width - 22.0f, painel.y + 64.0f }, 1.0f, Fade(PAINEL_OURO, 0.6f * abertura));
+
+    for (int g = 0; g < GRUPOS_DE_TRAPACA; g++) {
+        Rectangle linha = { painel.x + 16.0f, painel.y + 80.0f + (float)g * 92.0f, painel.width - 32.0f, 82.0f };
+        Rectangle caixa;
+        bool destacado = g == grupo_destacado;
+        bool vale = situacao_do_grupo(g) == POKER_OK;
+        TipoDePedido pedido = PEDIDO_DO_GRUPO[g];
+        char numero[12];
+
+        brilho_das_linhas[g] += ((destacado ? 1.0f : 0.0f) - brilho_das_linhas[g]) * passo;
+        linha.x += 6.0f * brilho_das_linhas[g];
+
+        DrawRectangleRec(linha, Fade(PAINEL_FUNDO_CLARO, 0.45f * abertura));
+        DrawRectangleRec(linha, Fade(PAINEL_VERMELHO, brilho_das_linhas[g] * abertura));
+        DrawRectangleLinesEx(linha, 1.0f, Fade(destacado ? PAINEL_OURO_VIVO : PAINEL_OURO,
+                                               (0.35f + 0.55f * brilho_das_linhas[g]) * abertura));
+
+        caixa = (Rectangle){ linha.x + 10.0f, linha.y + 12.0f, 58.0f, 58.0f };
+        DrawRectangleLinesEx(caixa, 1.0f, Fade(PAINEL_OURO, 0.5f * abertura));
+        painel_icone(ICONE_DO_GRUPO[g], (Rectangle){ caixa.x + 9.0f, caixa.y + 9.0f, 40.0f, 40.0f },
+                     Fade(vale ? PAINEL_OURO_VIVO : PAINEL_TEXTO_SUAVE, abertura));
+
+        snprintf(numero, sizeof numero, "%d", g + 1);
+        DrawText(numero, (int)(caixa.x + 3.0f), (int)(caixa.y + 2.0f), 12, Fade(PAINEL_TEXTO_SUAVE, abertura));
+        DrawText(NOME_DO_GRUPO[g], (int)(linha.x + 82.0f), (int)(linha.y + 16.0f), 21,
+                 Fade(vale ? PAINEL_TEXTO : PAINEL_TEXTO_SUAVE, abertura));
+        DrawText(RESUMO_DO_GRUPO[g], (int)(linha.x + 82.0f), (int)(linha.y + 48.0f), 15,
+                 Fade(PAINEL_TEXTO_SUAVE, abertura));
+
+        desenhar_custo(partida_custo_da_trapaca(partida, pedido), linha.x + linha.width - 14.0f,
+                       linha.y + 14.0f, 20, abertura);
+        desenhar_usos(usos_do_grupo(partida, g), linha.x + linha.width - 42.0f, linha.y + 60.0f, abertura);
+
+        if (!vale)
+            DrawRectangleRec(linha, Fade(BLACK, 0.35f * abertura));
+
+        if (interativa)
+            registrar_botao(linha, BOTAO_TRAPACA + g);
+    }
+
+    DrawText("1 a 5 ou setas escolhem    ENTER usa    ESC fecha", (int)(painel.x + 22.0f),
+             (int)(painel.y + painel.height - 32.0f), 15, Fade(PAINEL_TEXTO_SUAVE, abertura));
+}
+
+/** Rótulo e valor de uma medida do detalhe (custo ou risco). */
+static void desenhar_medida(const char *rotulo, const char *valor, float x, float y, Color cor, float opacidade)
+{
+    DrawText(rotulo, (int)x, (int)y, 15, Fade(PAINEL_TEXTO_SUAVE, opacidade));
+    DrawText(valor, (int)x, (int)(y + 22.0f), 30, Fade(cor, opacidade));
+}
+
+/** Painel do meio: o que a trapaça destacada faz, quanto custa e o risco. */
+static void desenhar_detalhe(const Partida *partida, float abertura, bool servicos_interativos)
+{
+    float deslize = (1.0f - painel_suave(abertura)) * 50.0f;
+    Rectangle painel = { 528.0f + deslize, 80.0f, 430.0f, 584.0f };
+    int g = grupo_destacado;
+    bool suborno = g == GRUPO_SUBORNO;
+    TipoDePedido tipo = suborno ? SERVICOS_DO_SUBORNO[servico_destacado] : PEDIDO_DO_GRUPO[g];
+    PokerStatus status = suborno && servicos_interativos ? trapaca_status[tipo] : situacao_do_grupo(g);
+    int chance = partida_chance_de_descoberta(partida, tipo);
+    float x = painel.x + 24.0f;
+    float largura = painel.width - 48.0f;
+    float y;
+    float conteudo;
+    Rectangle caixa = { x, painel.y + 22.0f, 70.0f, 70.0f };
+    char texto[TAMANHO_LINHA];
+    const char *motivo;
+
+    if (g != grupo_no_detalhe) {
+        grupo_no_detalhe = g;
+        inicio_do_detalhe = GetTime();
+    }
+
+    conteudo = painel_suave(painel_progresso(inicio_do_detalhe, 0.2)) * abertura;
+    risco_mostrado += ((float)chance - risco_mostrado) * passo_do_quadro(7.0f);
+
+    painel_desenhar(painel, abertura);
+    painel_moldura(caixa, PAINEL_OURO, conteudo);
+    painel_icone(ICONE_DO_GRUPO[g], (Rectangle){ caixa.x + 10.0f, caixa.y + 10.0f, 50.0f, 50.0f },
+                 Fade(PAINEL_OURO_VIVO, conteudo));
+    DrawText(NOME_DO_GRUPO[g], (int)(x + 88.0f), (int)(painel.y + 32.0f), 23, Fade(PAINEL_TEXTO, conteudo));
+    DrawText(RESUMO_DO_GRUPO[g], (int)(x + 88.0f), (int)(painel.y + 66.0f), 15, Fade(PAINEL_TEXTO_SUAVE, conteudo));
+
+    y = painel.y + 114.0f;
+    y += (float)painel_texto_quebrado(DESCRICAO_DO_GRUPO[g], (Rectangle){ x, y, largura, 120.0f }, 17,
+                                      Fade(PAINEL_TEXTO, conteudo));
+    y += 8.0f;
+    DrawLineEx((Vector2){ x, y }, (Vector2){ x + largura, y }, 1.0f, Fade(PAINEL_OURO, 0.5f * conteudo));
+    y += 14.0f;
+
+    if (suborno) {
+        for (int i = 0; i < 3; i++) {
+            Rectangle linha = { x, y + (float)i * 52.0f, largura, 46.0f };
+            TipoDePedido servico = SERVICOS_DO_SUBORNO[i];
+            bool vale = trapaca_status[servico] == POKER_OK;
+            bool destacado = servicos_interativos && i == servico_destacado;
+            char rotulo[48];
+
+            if (destacado)
+                DrawRectangleRec(linha, Fade(PAINEL_VERMELHO, conteudo));
+
+            DrawRectangleLinesEx(linha, 1.0f, Fade(destacado ? PAINEL_OURO_VIVO : PAINEL_OURO,
+                                                   (destacado ? 0.9f : 0.35f) * conteudo));
+            painel_icone(ICONE_DO_SERVICO[i], (Rectangle){ linha.x + 8.0f, linha.y + 7.0f, 32.0f, 32.0f },
+                         Fade(vale ? PAINEL_OURO_VIVO : PAINEL_TEXTO_SUAVE, conteudo));
+            snprintf(rotulo, sizeof rotulo, "%d  %s", i + 1, NOME_DO_SERVICO[i]);
+            DrawText(rotulo, (int)(linha.x + 50.0f), (int)(linha.y + 15.0f), 17,
+                     Fade(vale ? PAINEL_TEXTO : PAINEL_TEXTO_SUAVE, conteudo));
+            desenhar_custo(partida_custo_da_trapaca(partida, servico), linha.x + linha.width - 10.0f,
+                           linha.y + 14.0f, 18, conteudo);
+
+            if (servicos_interativos && vale)
+                registrar_botao(linha, BOTAO_OPCAO_DO_SUBORNO + i);
+        }
+
+        y += 3.0f * 52.0f + 2.0f;
+        snprintf(texto, sizeof texto, "Risco de o dealer não aceitar: %d%%", PARTIDA_CHANCE_DO_DEALER_RECUSAR);
+        DrawText(texto, (int)x, (int)y, 16, Fade(PAINEL_TEXTO_SUAVE, conteudo));
+        y += 26.0f;
+        snprintf(texto, sizeof texto, "RISCO DE SER DESCOBERTO: %d%%", chance);
+        DrawText(texto, (int)x, (int)y, 15, Fade(cor_do_risco(chance), conteudo));
+        y += 22.0f;
+    } else {
+        PokerChips custo = partida_custo_da_trapaca(partida, tipo);
+
+        if (custo > 0)
+            snprintf(texto, sizeof texto, "%lld", (long long)custo);
+        else
+            snprintf(texto, sizeof texto, "grátis");
+
+        desenhar_medida("CUSTO", texto, x, y, PAINEL_TEXTO, conteudo);
+        snprintf(texto, sizeof texto, "%d%%", chance);
+        desenhar_medida("RISCO DE SER DESCOBERTO", texto, x + largura * 0.42f, y, cor_do_risco(chance), conteudo);
+        y += 62.0f;
+    }
+
+    painel_barra((Rectangle){ x, y, largura, 12.0f }, risco_mostrado / 100.0f, 0, cor_do_risco(chance));
+    y += 26.0f;
+
+    texto[0] = '\0';
+    switch ((GrupoDeTrapaca)g) {
+        case GRUPO_BEBIDA:
+            if (partida->cheats.maos_embriagado > 0)
+                snprintf(texto, sizeof texto, "Ele já está embriagado por mais %d mão(s).",
+                         partida->cheats.maos_embriagado);
+            else
+                snprintf(texto, sizeof texto, "Ele está sóbrio e atento.");
+            break;
+
+        case GRUPO_CUMPLICE:
+            snprintf(texto, sizeof texto, "Usos neste confronto: %d.", usos_do_grupo(partida, g));
+            break;
+
+        case GRUPO_MANGA: {
+            char carta[32];
+
+            nome_da_carta(partida->cheats.carta_na_manga, carta, sizeof carta);
+            snprintf(texto, sizeof texto, "Na manga agora: %s.", carta);
+            cartas_desenhar_frente(partida->cheats.carta_na_manga, false,
+                                   (Rectangle){ x + largura - 70.0f, y - 6.0f, 70.0f, 98.0f });
+            break;
+        }
+
+        case GRUPO_MARCAR: {
+            int marcas = 0;
+
+            for (int i = 0; i < 5; i++)
+                marcas += partida->cheats.turnos_marcacao[i] > 0 ? 1 : 0;
+
+            snprintf(texto, sizeof texto, "Cartas marcadas valendo: %d.", marcas);
+            cartas_desenhar_verso(true, (Rectangle){ x + largura - 70.0f, y - 6.0f, 70.0f, 98.0f });
+            break;
+        }
+
+        case GRUPO_SUBORNO:
+        case GRUPOS_DE_TRAPACA:
+            break;
+    }
+
+    if (texto[0] != '\0')
+        painel_texto_quebrado(texto, (Rectangle){ x, y, largura - 90.0f, 60.0f }, 16, Fade(PAINEL_TEXTO_SUAVE, conteudo));
+
+    motivo = aviso_das_trapacas != NULL ? aviso_das_trapacas
+           : (status != POKER_OK ? motivo_da_trapaca(status) : NULL);
+
+    if (motivo != NULL)
+        DrawText(motivo, (int)x, (int)(painel.y + painel.height - 108.0f), 17, PAINEL_VERMELHO_VIVO);
+
+    botao_de_painel((Rectangle){ x, painel.y + painel.height - 78.0f, largura, 54.0f },
+                    suborno ? (servicos_interativos ? "PEDIR ESTE SERVIÇO" : "ESCOLHER SERVIÇO") : "USAR",
+                    22, true, status == POKER_OK, BOTAO_USAR);
+}
+
+/** Tela de escolha da carta da mão, para marcar ou trocar pela da manga. */
+static void desenhar_carta_da_mao(const Partida *partida, float abertura)
+{
+    Rectangle painel = { 220.0f, 90.0f, 840.0f, 548.0f };
+    bool manga = trapaca_em_andamento == PEDIDO_MANGA;
+    float pulso = 0.5f + 0.5f * sinf((float)GetTime() * 4.0f);
+
+    painel_desenhar(painel, abertura);
+    painel_icone(manga ? ICONE_AS : ICONE_MARCA, (Rectangle){ painel.x + 26.0f, painel.y + 22.0f, 54.0f, 54.0f },
+                 Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText(manga ? "ÁS NA MANGA" : "MARCAR CARTA", (int)(painel.x + 96.0f), (int)(painel.y + 26.0f), 30,
+             Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText(manga ? "Qual carta da sua mão vai para a manga?" : "Qual carta da sua mão você marca?",
+             (int)(painel.x + 96.0f), (int)(painel.y + 62.0f), 18, Fade(PAINEL_TEXTO, abertura));
+
+    for (int i = 0; i < 2; i++) {
+        PokerCard carta = partida->mao.cartas[TORNEIO_ASSENTO_JOGADOR][i];
+        bool vale = trapaca_vale_para_a_carta[trapaca_em_andamento][i];
+        bool destacada = i == carta_destacada;
+        Rectangle area = { (manga ? 310.0f : 400.0f) + (float)i * 230.0f, destacada ? 190.0f : 202.0f, 170.0f, 238.0f };
+        Rectangle clique = { area.x - 14.0f, 180.0f, area.width + 28.0f, area.height + 72.0f };
+        char rotulo[48];
+
+        if (destacada && vale)
+            DrawRectangleLinesEx((Rectangle){ area.x - 7.0f, area.y - 7.0f, area.width + 14.0f, area.height + 14.0f },
+                                 3.0f, Fade(PAINEL_OURO_VIVO, (0.55f + 0.45f * pulso) * abertura));
+
+        cartas_desenhar_frente(carta, is_card_marked(&partida->cheats, carta), area);
+
+        if (!vale)
+            DrawRectangleRec(area, Fade(BLACK, 0.55f));
+
+        snprintf(rotulo, sizeof rotulo, "%d%s", i + 1, vale ? "" : "  (já marcada)");
+        DrawText(rotulo, (int)(area.x + (area.width - (float)MeasureText(rotulo, 22)) / 2.0f),
+                 (int)(area.y + area.height + 16.0f), 22, vale ? PAINEL_OURO_VIVO : PAINEL_TEXTO_SUAVE);
+        registrar_botao(clique, BOTAO_CARTA_DA_MAO + i);
+    }
+
+    if (manga) {
+        Rectangle na_manga = { 830.0f, 202.0f, 170.0f, 238.0f };
+        float meio = 812.0f;
+
+        DrawLineEx((Vector2){ meio - 46.0f, 320.0f }, (Vector2){ meio - 6.0f, 320.0f }, 3.0f, PAINEL_OURO_VIVO);
+        DrawTriangle((Vector2){ meio, 320.0f }, (Vector2){ meio - 12.0f, 312.0f }, (Vector2){ meio - 12.0f, 328.0f },
+                     PAINEL_OURO_VIVO);
+        cartas_desenhar_frente(partida->cheats.carta_na_manga, false, na_manga);
+        DrawText("NA MANGA", (int)(na_manga.x + (na_manga.width - (float)MeasureText("NA MANGA", 22)) / 2.0f),
+                 (int)(na_manga.y + na_manga.height + 16.0f), 22, PAINEL_OURO);
+    }
+
+    if (aviso_das_trapacas != NULL)
+        DrawText(aviso_das_trapacas, (int)(painel.x + 30.0f), (int)(painel.y + painel.height - 124.0f), 18,
+                 PAINEL_VERMELHO_VIVO);
+
+    DrawText("1, 2 ou setas e ENTER    ESC volta", (int)(painel.x + 30.0f),
+             (int)(painel.y + painel.height - 66.0f), 16, PAINEL_TEXTO_SUAVE);
+    botao_de_painel((Rectangle){ painel.x + painel.width - 470.0f, painel.y + painel.height - 84.0f, 200.0f, 52.0f },
+                    "VOLTAR", 20, false, true, BOTAO_VOLTAR_DAS_TRAPACAS);
+    botao_de_painel((Rectangle){ painel.x + painel.width - 256.0f, painel.y + painel.height - 84.0f, 230.0f, 52.0f },
+                    "ESCOLHER", 22, true, trapaca_vale_para_a_carta[trapaca_em_andamento][carta_destacada],
+                    BOTAO_USAR);
+}
+
+/** Grade com as 52 cartas, para pedir uma ao dealer. */
+static void desenhar_grade(float abertura)
+{
+    Rectangle painel = { 120.0f, 56.0f, 1040.0f, 616.0f };
+    bool na_mesa = trapaca_em_andamento == PEDIDO_SUBORNO_MESA;
+    float x0 = painel.x + (painel.width - (13.0f * 62.0f + 12.0f * 8.0f)) / 2.0f;
+    float y0 = painel.y + 116.0f;
+    PokerCard cursor = { valor_do_seletor, (PokerSuit)naipe_do_seletor };
+    char nome[48];
     char linha[TAMANHO_LINHA];
-    char carta[8];
-    int y = 308;
+
+    painel_desenhar(painel, abertura);
+    painel_icone(na_mesa ? ICONE_CARTA_MESA : ICONE_CARTA_MAO,
+                 (Rectangle){ painel.x + 26.0f, painel.y + 20.0f, 50.0f, 50.0f }, Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText(na_mesa ? "SUBORNO: CARTA NA MESA" : "SUBORNO: CARTA NA SUA MÃO", (int)(painel.x + 92.0f),
+             (int)(painel.y + 22.0f), 28, Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText(na_mesa ? "O dealer põe a carta escolhida como a primeira da próxima rua."
+                     : "O dealer te entrega a carta escolhida na próxima mão.",
+             (int)(painel.x + 92.0f), (int)(painel.y + 58.0f), 17, Fade(PAINEL_TEXTO, abertura));
+
+    for (int linha_da_grade = 0; linha_da_grade < 4; linha_da_grade++) {
+        int naipe = 3 - linha_da_grade;
+
+        for (int valor = 2; valor <= 14; valor++) {
+            PokerCard carta = { valor, (PokerSuit)naipe };
+            int posicao = linha_da_grade * 13 + (valor - 2);
+            bool no_cursor = valor == valor_do_seletor && naipe == naipe_do_seletor;
+            bool visivel = carta_esta_a_vista(carta);
+            Rectangle area = { x0 + (float)(valor - 2) * 70.0f, y0 + (float)linha_da_grade * 97.0f, 62.0f, 87.0f };
+
+            if (no_cursor) {
+                area.y -= 6.0f;
+                DrawRectangleRec((Rectangle){ area.x - 4.0f, area.y - 4.0f, area.width + 8.0f, area.height + 8.0f },
+                                 visivel ? PAINEL_TEXTO_SUAVE : PAINEL_OURO_VIVO);
+            }
+
+            cartas_desenhar_frente(carta, false, area);
+
+            if (visivel)
+                DrawRectangleRec(area, Fade(BLACK, 0.62f));
+            else
+                registrar_botao(area, BOTAO_GRADE + posicao);
+        }
+    }
+
+    nome_da_carta(cursor, nome, sizeof nome);
+    snprintf(linha, sizeof linha, "%s%s", nome, carta_esta_a_vista(cursor) ? "  (você já vê esta carta)" : "");
+    DrawText(linha, (int)x0, (int)(y0 + 4.0f * 97.0f + 6.0f), 24,
+             carta_esta_a_vista(cursor) ? PAINEL_TEXTO_SUAVE : PAINEL_TEXTO);
+
+    if (aviso_das_trapacas != NULL)
+        DrawText(aviso_das_trapacas, (int)x0, (int)(y0 + 4.0f * 97.0f + 40.0f), 17, PAINEL_VERMELHO_VIVO);
+
+    DrawText("Setas ou mouse escolhem    ENTER pede    ESC volta", (int)x0,
+             (int)(painel.y + painel.height - 46.0f), 16, PAINEL_TEXTO_SUAVE);
+    botao_de_painel((Rectangle){ painel.x + painel.width - 470.0f, painel.y + painel.height - 70.0f, 200.0f, 50.0f },
+                    "VOLTAR", 20, false, true, BOTAO_VOLTAR_DAS_TRAPACAS);
+    botao_de_painel((Rectangle){ painel.x + painel.width - 256.0f, painel.y + painel.height - 70.0f, 230.0f, 50.0f },
+                    "PEDIR ESTA CARTA", 20, true, !carta_esta_a_vista(cursor), BOTAO_USAR);
+}
+
+/** Descreve o pedido que está esperando o CONTINUAR. */
+static void descrever_pedido(const Partida *partida, char *saida, size_t tamanho)
+{
+    char carta[32];
+    char outra[32];
+    PokerCard da_mao = partida->mao.cartas[TORNEIO_ASSENTO_JOGADOR][pedido_em_espera.carta_da_mao == 1 ? 1 : 0];
+
+    switch (pedido_em_espera.tipo) {
+        case PEDIDO_BEBIDA:
+            snprintf(saida, tamanho, "Batizar a bebida do adversário.");
+            return;
+
+        case PEDIDO_CUMPLICE:
+            snprintf(saida, tamanho, "Pedir ao cúmplice que espie a mão dele.");
+            return;
+
+        case PEDIDO_MARCAR_CARTA:
+            nome_da_carta(da_mao, carta, sizeof carta);
+            snprintf(saida, tamanho, "Marcar carta: %s.", carta);
+            return;
+
+        case PEDIDO_MANGA:
+            nome_da_carta(da_mao, carta, sizeof carta);
+            nome_da_carta(partida->cheats.carta_na_manga, outra, sizeof outra);
+            snprintf(saida, tamanho, "Manga: trocar %s por %s.", carta, outra);
+            return;
+
+        case PEDIDO_SUBORNO_MESA:
+            nome_da_carta(pedido_em_espera.carta, carta, sizeof carta);
+            snprintf(saida, tamanho, "Dealer: pôr %s na mesa.", carta);
+            return;
+
+        case PEDIDO_SUBORNO_MAO:
+            nome_da_carta(pedido_em_espera.carta, carta, sizeof carta);
+            snprintf(saida, tamanho, "Dealer: te entregar %s na próxima mão.", carta);
+            return;
+
+        case PEDIDO_SUBORNO_VER:
+            snprintf(saida, tamanho, "Pagar o dealer para mostrar as cartas do adversário.");
+            return;
+
+        case PEDIDO_NENHUM:
+        case PEDIDO_TOTAL:
+            break;
+    }
+
+    snprintf(saida, tamanho, "Trapaça.");
+}
+
+/** Frase da tela de risco, conforme a chance de ser descoberto. */
+static const char *frase_do_risco(int chance)
+{
+    if (chance < 15)
+        return "Ninguém está olhando. Por enquanto.";
+    if (chance < 30)
+        return "O oponente percebeu uma movimentação estranha.";
+    if (chance < 50)
+        return "Ele está de olho nas suas mãos.";
+    return "Ele já desconfia de você. Pense bem.";
+}
+
+/** Tela de SUSPEITA antes de cada trapaça: a chance de ser pego, CONTINUAR e RECUAR. */
+static void desenhar_risco(const Partida *partida, float abertura)
+{
+    Rectangle painel = { 70.0f, 120.0f, 660.0f, 480.0f };
+    TipoDePedido tipo = pedido_em_espera.tipo;
+    int chance = partida_chance_de_descoberta(partida, tipo);
+    float enchimento = painel_suave(painel_progresso(inicio_da_tela, 0.9)) * (float)chance;
+    float pulso = 0.5f + 0.5f * sinf((float)GetTime() * 5.0f);
+    PokerChips custo = partida_custo_da_trapaca(partida, tipo);
+    float x = painel.x + 30.0f;
+    float y = painel.y + 26.0f;
+    char texto[TAMANHO_LINHA];
+    int balas = partida->risco.balas_roleta;
+
+    painel_vinheta(LARGURA_TELA, ALTURA_TELA, (Color){ 130, 0, 0, 255 },
+                   (0.45f + (chance >= 45 ? 0.3f * pulso : 0.0f)) * abertura);
+    desenhar_recorte(dealer_pela_suspeita(chance), DEALER_BUSTO, (Vector2){ 640.0f, 90.0f }, 630.0f, 0.0f,
+                     Fade((Color){ 255, 92, 92, 255 }, abertura));
+    DrawRectangleGradientH(640, 90, 260, 630, Fade(BLACK, 0.7f * abertura), Fade(BLACK, 0.0f));
+
+    painel_desenhar(painel, abertura);
+    painel_icone(ICONE_AVISO, (Rectangle){ x, y, 60.0f, 60.0f }, Fade(PAINEL_VERMELHO_VIVO, abertura));
+    DrawText("SUSPEITA", (int)(x + 80.0f), (int)(y + 8.0f), 44, Fade(PAINEL_VERMELHO_VIVO, abertura));
+    y += 84.0f;
+
+    y += (float)painel_texto_quebrado(frase_do_risco(chance), (Rectangle){ x, y, painel.width - 60.0f, 60.0f },
+                                      22, Fade(PAINEL_TEXTO, abertura));
+    descrever_pedido(partida, texto, sizeof texto);
+    y += (float)painel_texto_quebrado(texto, (Rectangle){ x, y + 4.0f, painel.width - 60.0f, 50.0f }, 17,
+                                      Fade(PAINEL_TEXTO_SUAVE, abertura));
+    y += 22.0f;
+
+    DrawText("CHANCE DE SER DESCOBERTO", (int)x, (int)y, 16, Fade(PAINEL_TEXTO_SUAVE, abertura));
+    y += 26.0f;
+    painel_barra((Rectangle){ x, y, painel.width - 190.0f, 28.0f }, enchimento / 100.0f, 0, cor_do_risco(chance));
+    snprintf(texto, sizeof texto, "%d%%", (int)(enchimento + 0.5f));
+    DrawText(texto, (int)(painel.x + painel.width - 140.0f), (int)(y - 4.0f), 36, cor_do_risco(chance));
+    y += 48.0f;
+
+    if (tipo == PEDIDO_SUBORNO_MESA || tipo == PEDIDO_SUBORNO_MAO || tipo == PEDIDO_SUBORNO_VER) {
+        snprintf(texto, sizeof texto, "Chance de o dealer não aceitar: %d%% (ele fica com o dinheiro).",
+                 PARTIDA_CHANCE_DO_DEALER_RECUSAR);
+        DrawText(texto, (int)x, (int)y, 16, Fade(PAINEL_TEXTO_SUAVE, abertura));
+        y += 24.0f;
+    }
+
+    snprintf(texto, sizeof texto, "Se for pego: roleta russa com %d bala%s no tambor.", balas, balas == 1 ? "" : "s");
+    DrawText(texto, (int)x, (int)y, 16, Fade(PAINEL_TEXTO_SUAVE, abertura));
+    y += 24.0f;
+
+    if (custo > 0) {
+        snprintf(texto, sizeof texto, "Custo: %lld fichas, pagas na hora.", (long long)custo);
+        DrawText(texto, (int)x, (int)y, 16, Fade(PAINEL_TEXTO_SUAVE, abertura));
+    }
+
+    DrawText("ENTER continua    ESC recua", (int)x, (int)(painel.y + painel.height - 108.0f), 16, PAINEL_TEXTO_SUAVE);
+    botao_de_painel((Rectangle){ x, painel.y + painel.height - 80.0f, 280.0f, 56.0f }, "CONTINUAR", 24, false, true,
+                    BOTAO_CONTINUAR_TRAPACA);
+    botao_de_painel((Rectangle){ painel.x + painel.width - 310.0f, painel.y + painel.height - 80.0f, 280.0f, 56.0f },
+                    "RECUAR", 24, true, true, BOTAO_RECUAR);
+}
+
+static void desenhar_trapacas(const Partida *partida)
+{
+    float abertura;
+    float tela;
+    Color tinta = { 196, 186, 176, 255 };
 
     if (tela_de_trapacas == TRAPACAS_FECHADAS)
         return;
 
-    bool mostrar_png = tela_de_trapacas == TRAPACAS_MENU && textura_trapacas.id != 0;
+    abertura = painel_progresso(inicio_das_trapacas, 0.3);
+    tela = painel_suave(painel_progresso(inicio_da_tela, 0.25));
+    escurecer_mesa(abertura);
 
-    if (mostrar_png) {
-        desenhar_textura_tela(textura_trapacas);
-    } else if (textura_trapacas_fundo.id != 0) {
-        desenhar_textura_tela(textura_trapacas_fundo);
+    switch (tela_de_trapacas) {
+        case TRAPACAS_MENU:
+            desenhar_dealer_ao_fundo(partida, abertura, tinta);
+            desenhar_lista_de_trapacas(partida, abertura, true);
+            desenhar_detalhe(partida, abertura, false);
+            break;
+
+        case TRAPACAS_SUBORNO:
+            desenhar_dealer_ao_fundo(partida, 1.0f, tinta);
+            desenhar_lista_de_trapacas(partida, 1.0f, false);
+            DrawRectangle(32, 80, 476, 584, Fade(BLACK, 0.4f));
+            desenhar_detalhe(partida, 1.0f, true);
+            DrawText("1 a 3 ou setas escolhem o serviço    ESC volta", 560, 676, 15, PAINEL_TEXTO_SUAVE);
+            break;
+
+        case TRAPACAS_CARTA_DA_MAO:
+            desenhar_carta_da_mao(partida, tela);
+            break;
+
+        case TRAPACAS_ESCOLHER_CARTA:
+            desenhar_grade(tela);
+            break;
+
+        case TRAPACAS_RISCO:
+            desenhar_risco(partida, tela);
+            break;
+
+        case TRAPACAS_FECHADAS:
+            break;
+    }
+}
+
+/** Botão de fechar dos avisos, centralizado no painel. */
+static void botao_do_aviso(Rectangle painel, const char *rotulo, bool principal)
+{
+    float largura = (float)MeasureText(rotulo, 22) + 80.0f;
+
+    botao_de_painel((Rectangle){ painel.x + (painel.width - largura) / 2.0f, painel.y + painel.height - 78.0f,
+                                 largura, 54.0f }, rotulo, 22, principal, true, BOTAO_FECHAR_AVISO);
+}
+
+static void desenhar_aviso_do_cumplice(float abertura)
+{
+    Rectangle painel = { 300.0f, 96.0f, 680.0f, 520.0f };
+    float subida = (1.0f - painel_suave(painel_progresso(inicio_do_aviso + 0.25, 0.5))) * 50.0f;
+    char texto[TAMANHO_LINHA];
+    int largura_titulo = MeasureText("INFORMAÇÃO DO CÚMPLICE", 28);
+
+    painel_desenhar(painel, abertura);
+    painel_icone(ICONE_BINOCULO, (Rectangle){ painel.x + (painel.width - (float)largura_titulo) / 2.0f - 58.0f,
+                                              painel.y + 22.0f, 44.0f, 40.0f }, Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText("INFORMAÇÃO DO CÚMPLICE", (int)(painel.x + (painel.width - (float)largura_titulo) / 2.0f),
+             (int)(painel.y + 28.0f), 28, Fade(PAINEL_OURO_VIVO, abertura));
+
+    for (int i = 0; i < 2; i++)
+        cartas_desenhar_verso(marcou_carta_do_adversario[i],
+                              (Rectangle){ 512.0f + (float)i * 136.0f, 186.0f, 120.0f, 168.0f });
+
+    if (aviso_tem_categoria)
+        snprintf(texto, sizeof texto, "O cúmplice fez o sinal combinado. Com as cartas que estão na mesa, ele tem: %s.",
+                 poker_category_name(aviso_categoria));
+    else
+        snprintf(texto, sizeof texto, "O cúmplice não conseguiu ver a mão dele.");
+
+    painel_papel((Rectangle){ 380.0f, 390.0f + subida, 520.0f, 104.0f }, texto, 19);
+    botao_do_aviso(painel, "CONTINUAR", false);
+}
+
+static void desenhar_aviso_das_cartas(float abertura)
+{
+    Rectangle painel = { 200.0f, 92.0f, 880.0f, 528.0f };
+    char texto[TAMANHO_LINHA];
+    char carta0[32];
+    char carta1[32];
+
+    painel_desenhar(painel, abertura);
+    desenhar_recorte(textura_dealer, DEALER_RECORTE, (Vector2){ painel.x + 20.0f, painel.y + 70.0f }, 340.0f, 0.0f,
+                     Fade(WHITE, abertura));
+    DrawText("O DEALER MOSTROU AS CARTAS", (int)(painel.x + 360.0f), (int)(painel.y + 30.0f), 26,
+             Fade(PAINEL_OURO_VIVO, abertura));
+
+    for (int i = 0; i < 2; i++) {
+        float t = painel_progresso(inicio_do_aviso + 0.3 + 0.35 * (double)i, 0.45);
+        float escala = fabsf(cosf(3.14159265f * t));
+        Rectangle area = { painel.x + 380.0f + (float)i * 190.0f, painel.y + 96.0f, 150.0f, 210.0f };
+
+        if (escala < 0.03f)
+            escala = 0.03f;
+
+        area.x += area.width * (1.0f - escala) / 2.0f;
+        area.width *= escala;
+
+        if (t >= 0.5f)
+            cartas_desenhar_frente(aviso_cartas[i], false, area);
+        else
+            cartas_desenhar_verso(false, area);
+    }
+
+    nome_da_carta(aviso_cartas[0], carta0, sizeof carta0);
+    nome_da_carta(aviso_cartas[1], carta1, sizeof carta1);
+    snprintf(texto, sizeof texto, "O adversário tem %s e %s.", carta0, carta1);
+    painel_papel((Rectangle){ painel.x + 380.0f, painel.y + 336.0f, 440.0f, 70.0f }, texto, 19);
+    botao_do_aviso(painel, "CONTINUAR", false);
+}
+
+static void desenhar_aviso_da_bebida(const Partida *partida, float abertura)
+{
+    Rectangle painel = { 640.0f, 160.0f, 560.0f, 400.0f };
+    float balanco = sinf((float)GetTime() * 1.7f) * 4.0f;
+
+    desenhar_recorte(retrato_do_oponente(partida, partida->ia.style), RETRATO_INTEIRO,
+                     (Vector2){ 90.0f, 70.0f }, 640.0f, balanco, Fade((Color){ 255, 222, 196, 255 }, abertura));
+    painel_desenhar(painel, abertura);
+    painel_icone(ICONE_GARRAFA, (Rectangle){ painel.x + 28.0f, painel.y + 24.0f, 56.0f, 56.0f },
+                 Fade(PAINEL_OURO_VIVO, abertura));
+    DrawText("BEBIDA BATIZADA", (int)(painel.x + 100.0f), (int)(painel.y + 36.0f), 32, Fade(PAINEL_OURO_VIVO, abertura));
+    painel_papel((Rectangle){ painel.x + 30.0f, painel.y + 116.0f, painel.width - 60.0f, 120.0f },
+                 "Ele bebeu sem perceber. Pelas próximas 3 mãos ele joga pior e desconfia menos de você.", 20);
+    botao_do_aviso(painel, "CONTINUAR", false);
+}
+
+static void desenhar_aviso_descoberto(const Partida *partida, float abertura)
+{
+    float t = painel_progresso(inicio_do_aviso, 0.7);
+    float tremor = (1.0f - t) * 12.0f * sinf((float)GetTime() * 70.0f);
+    Rectangle painel = { 70.0f + tremor, 170.0f, 560.0f, 380.0f };
+
+    DrawRectangle(0, 0, LARGURA_TELA, ALTURA_TELA, Fade((Color){ 190, 0, 0, 255 }, 0.55f * (1.0f - t)));
+    painel_vinheta(LARGURA_TELA, ALTURA_TELA, (Color){ 140, 0, 0, 255 }, 0.8f * abertura);
+    desenhar_recorte(textura_dealer_revolver, DEALER_BUSTO, (Vector2){ 600.0f + tremor, 60.0f }, 660.0f, 0.0f,
+                     Fade((Color){ 255, 96, 96, 255 }, abertura));
+    DrawRectangleGradientH(600, 60, 200, 660, Fade(BLACK, 0.6f * abertura), Fade(BLACK, 0.0f));
+
+    painel_desenhar(painel, abertura);
+    DrawText("DESCOBERTO!", (int)(painel.x + 30.0f), (int)(painel.y + 34.0f), 58, PAINEL_VERMELHO_VIVO);
+    DrawText("O dealer viu tudo.", (int)(painel.x + 32.0f), (int)(painel.y + 120.0f), 28, PAINEL_TEXTO);
+    DrawText("Agora quem decide é o tambor.", (int)(painel.x + 32.0f), (int)(painel.y + 162.0f), 22, PAINEL_TEXTO_SUAVE);
+    painel_tambor((Vector2){ painel.x + painel.width - 90.0f, painel.y + 190.0f }, 52.0f, partida->risco.balas_roleta,
+                  (float)GetTime() * 0.6f);
+    botao_do_aviso(painel, "ENCARAR A ROLETA", true);
+}
+
+/** O dealer com o revólver apontado, à direita: é ele quem atira. Devolve onde fica a boca do cano. */
+static Vector2 desenhar_dealer_armado(float deslocamento, Color tinta)
+{
+    Vector2 posicao = { 600.0f + deslocamento, 60.0f };
+    float altura = 660.0f;
+
+    desenhar_recorte(textura_dealer_revolver, DEALER_BUSTO, posicao, altura, 0.0f, tinta);
+    DrawRectangleGradientH(600, 60, 220, 660, Fade(BLACK, 0.7f * (float)tinta.a / 255.0f), Fade(BLACK, 0.0f));
+    return ponto_no_recorte(textura_dealer_revolver, DEALER_BUSTO, posicao, altura, BOCA_DO_CANO);
+}
+
+static void desenhar_aviso_da_roleta(float abertura)
+{
+    Rectangle painel = { 70.0f, 140.0f, 560.0f, 460.0f };
+    float t = painel_progresso(inicio_do_aviso, 1.1);
+    float giro = (1.0f - painel_suave(t)) * 14.0f;
+    float depois = painel_progresso(inicio_do_aviso + 1.1, 0.5);
+    bool revelado = t >= 1.0f;
+    float tremor = revelado && aviso_morreu ? (1.0f - depois) * 16.0f * sinf((float)GetTime() * 80.0f) : 0.0f;
+    Vector2 boca = desenhar_dealer_armado(tremor, Fade(WHITE, abertura));
+    char texto[TAMANHO_LINHA];
+
+    if (revelado && aviso_morreu)
+        painel_clarao(boca, 80.0f + 60.0f * depois, 1.0f - depois);
+
+    if (revelado && !aviso_morreu) {
+        float subida = painel_suave(depois) * 30.0f;
+        Color tinta = Fade(PAINEL_TEXTO, 1.0f - 0.6f * depois);
+
+        DrawText("click", (int)(boca.x + 50.0f), (int)(boca.y - 64.0f - subida), 34, tinta);
+        DrawLineEx((Vector2){ boca.x + 30.0f, boca.y - 30.0f }, (Vector2){ boca.x + 46.0f, boca.y - 44.0f }, 3.0f, tinta);
+        DrawLineEx((Vector2){ boca.x + 36.0f, boca.y - 12.0f }, (Vector2){ boca.x + 56.0f, boca.y - 16.0f }, 3.0f, tinta);
+        DrawLineEx((Vector2){ boca.x + 22.0f, boca.y - 40.0f }, (Vector2){ boca.x + 28.0f, boca.y - 60.0f }, 3.0f, tinta);
+    }
+
+    painel_desenhar(painel, abertura);
+    painel_tambor((Vector2){ painel.x + painel.width / 2.0f, painel.y + 150.0f }, 100.0f, aviso_balas, giro);
+
+    if (!revelado) {
+        texto_no_meio("O dealer puxa o gatilho...", painel, painel.y + 290.0f, 24, PAINEL_TEXTO_SUAVE);
+        return;
+    }
+
+    if (aviso_morreu) {
+        texto_no_meio("BANG.", painel, painel.y + 276.0f, 64, PAINEL_VERMELHO_VIVO);
+        texto_no_meio("Você morreu.", painel, painel.y + 348.0f, 26, PAINEL_TEXTO);
     } else {
-        DrawRectangle(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_FUNDO);
-        DrawRectangleLines(24, 296, LARGURA_TELA - 48, ALTURA_TELA - 316, COR_OURO);
+        texto_no_meio("CLICK.", painel, painel.y + 276.0f, 64, PAINEL_OURO_VIVO);
+        snprintf(texto, sizeof texto, "Você sobreviveu. Agora são %d balas.", aviso_balas);
+        texto_no_meio(texto, painel, painel.y + 348.0f, 20, PAINEL_TEXTO);
     }
 
-    if (tela_de_trapacas == TRAPACAS_MENU) {
-        DrawText("TRAPAÇAS  (1 a 7, W/S e ENTER ou cliques escolhem; ESC fecha)", 40, y, 22, COR_OURO);
-        botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
-        y += mostrar_png ? 48 : 40;
+    botao_do_aviso(painel, "CONTINUAR", aviso_morreu);
 
-        for (int i = 0; i < PEDIDO_TOTAL - 1; i++) {
-            TipoDePedido tipo = (TipoDePedido)(i + 1);
-            bool vale = trapaca_status[tipo] == POKER_OK;
-            const char *sufixo = "";
-            char manga[24] = "";
-            char numero[12] = "";
+    /* O tiro clareia a tela inteira por um instante. */
+    if (aviso_morreu)
+        DrawRectangle(0, 0, LARGURA_TELA, ALTURA_TELA, Fade((Color){ 255, 236, 214, 255 }, 0.75f * (1.0f - depois)));
+}
 
-            if (!vale)
-                sufixo = trapaca_status[tipo] == POKER_ERR_CHIPS ? "   (sem fichas)" : "   (não vale agora)";
+/** O aviso aberto por uma trapaça ou pela roleta, por cima de tudo. */
+static void desenhar_aviso(const Partida *partida)
+{
+    float abertura;
 
-            if (tipo == PEDIDO_MANGA) {
-                texto_da_carta(partida->cheats.carta_na_manga, carta, sizeof carta);
-                snprintf(manga, sizeof manga, " (manga: %s)", carta);
-            }
-
-            if (!mostrar_png)
-                snprintf(numero, sizeof numero, "[%d] ", i + 1);
-
-            snprintf(linha, sizeof linha, "%s%s%s%s     custo %lld     risco %d%%%s%s",
-                     i == destaque_das_trapacas ? "> " : "  ", numero, ROTULOS[i], manga,
-                     (long long)partida_custo_da_trapaca(partida, tipo),
-                     partida_chance_de_descoberta(partida, tipo), sufixo,
-                     i == destaque_das_trapacas ? " <" : "");
-            if (mostrar_png) {
-                Rectangle area = { 55.0f, (float)(y - 4), 1130.0f, 32.0f };
-                DrawText(linha, 110, y, 22,
-                         !vale ? COR_TEXTO_SUAVE
-                               : (i == destaque_das_trapacas || mouse_sobre(area) ? COR_OURO : COR_TEXTO));
-                registrar_botao(area, BOTAO_TRAPACA + (int)tipo);
-            } else {
-                botao_de_texto(linha, 40, y, 22,
-                               !vale ? COR_TEXTO_SUAVE : (i == destaque_das_trapacas ? COR_OURO : COR_TEXTO),
-                               BOTAO_TRAPACA + (int)tipo);
-            }
-            y += mostrar_png ? 35 : 34;
-        }
-
-        y += 10;
-        DrawText(DESCRICOES[destaque_das_trapacas], mostrar_png ? 55 : 40, y, 22, COR_TEXTO);
-        y += 34;
-
-        if (aviso_das_trapacas != NULL)
-            DrawText(aviso_das_trapacas, 40, y, 22, COR_OURO);
-
+    if (aviso_aberto == AVISO_NENHUM)
         return;
+
+    abertura = painel_suave(painel_progresso(inicio_do_aviso, 0.35));
+    escurecer_mesa(abertura);
+
+    switch (aviso_aberto) {
+        case AVISO_CUMPLICE:
+            desenhar_aviso_do_cumplice(abertura);
+            break;
+
+        case AVISO_CARTAS_VISTAS:
+            desenhar_aviso_das_cartas(abertura);
+            break;
+
+        case AVISO_BEBIDA:
+            desenhar_aviso_da_bebida(partida, abertura);
+            break;
+
+        case AVISO_DESCOBERTO:
+            desenhar_aviso_descoberto(partida, abertura);
+            break;
+
+        case AVISO_ROLETA:
+            desenhar_aviso_da_roleta(abertura);
+            break;
+
+        case AVISO_NENHUM:
+            break;
+    }
+}
+
+/** Painel da roleta russa, esperando o gatilho. */
+static void desenhar_roleta(const Partida *partida)
+{
+    Rectangle painel = { 70.0f, 170.0f, 560.0f, 400.0f };
+    int balas = partida->risco.balas_roleta;
+    float x = painel.x + 250.0f;
+    char texto[TAMANHO_LINHA];
+
+    escurecer_mesa(1.0f);
+    desenhar_dealer_armado(0.0f, (Color){ 236, 224, 214, 255 });
+
+    painel_desenhar(painel, 1.0f);
+    DrawText("ROLETA RUSSA", (int)(painel.x + 28.0f), (int)(painel.y + 24.0f), 32, PAINEL_VERMELHO_VIVO);
+    painel_tambor((Vector2){ painel.x + 125.0f, painel.y + 196.0f }, 92.0f, balas, 0.0f);
+
+    DrawText(partida->roleta_motivo == ROLETA_DESCOBERTO ? "O dealer te pegou." : "Você faliu.",
+             (int)x, (int)(painel.y + 92.0f), 22, PAINEL_TEXTO);
+    snprintf(texto, sizeof texto, "%d bala%s em 6 câmaras.", balas, balas == 1 ? "" : "s");
+    DrawText(texto, (int)x, (int)(painel.y + 128.0f), 20, PAINEL_TEXTO_SUAVE);
+    snprintf(texto, sizeof texto, "Chance de morrer: %d%%", balas * 100 / 6);
+    DrawText(texto, (int)x, (int)(painel.y + 158.0f), 20, cor_do_risco(balas * 100 / 6));
+
+    if (partida->roleta_motivo == ROLETA_FALENCIA) {
+        snprintf(texto, sizeof texto, "Se sobreviver, volta com %lld fichas.",
+                 (long long)(torneio_fichas_iniciais_adversario(partida->torneio.confronto) / 2));
+        DrawText(texto, (int)x, (int)(painel.y + 188.0f), 18, PAINEL_TEXTO_SUAVE);
     }
 
-    if (tela_de_trapacas == TRAPACAS_CARTA_DA_MAO) {
-        snprintf(linha, sizeof linha, "%s: QUAL CARTA DA SUA MÃO?  (1 ou 2; ESC volta)",
-                 trapaca_em_andamento == PEDIDO_MANGA ? "ÁS NA MANGA" : "MARCAR CARTA");
-        DrawText(linha, 40, y, 22, COR_OURO);
-        botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
+    DrawText("O dealer aponta. ENTER e ele atira.", (int)x, (int)(painel.y + 222.0f), 17, PAINEL_TEXTO_SUAVE);
+    botao_de_painel((Rectangle){ x - 30.0f, painel.y + painel.height - 84.0f, 300.0f, 56.0f }, "ENCARAR O CANO", 22,
+                    true, true, BOTAO_CONTINUAR);
+}
 
-        for (int i = 0; i < 2; i++) {
-            bool vale = trapaca_vale_para_a_carta[trapaca_em_andamento][i];
-            PokerCard escolha = partida->mao.cartas[TORNEIO_ASSENTO_JOGADOR][i];
-            Rectangle area = { 400.0f + (float)i * 320.0f, 375.0f, 160.0f, 225.0f };
-            Rectangle clique = { area.x - 12.0f, area.y - 12.0f,
-                                 area.width + 24.0f, area.height + 58.0f };
-            bool sobre = mouse_sobre(clique);
+/**
+ * O comportamento do oponente no canto da mesa, que muda junto com a IA. Só o
+ * status: a figura do oponente ali é do Matheus.
+ */
+static void desenhar_oponente_na_mesa(const Partida *partida)
+{
+    Rectangle moldura = { 1060.0f, 22.0f, 200.0f, 78.0f };
+    int estilo = indice_do_estilo(partida->ia.style);
+    float t;
 
-            if (sobre)
-                DrawRectangleLinesEx((Rectangle){ area.x - 6.0f, area.y - 6.0f,
-                                                   area.width + 12.0f, area.height + 12.0f },
-                                     3.0f, vale ? COR_OURO : COR_TEXTO_SUAVE);
+    if (estilo != estilo_na_mesa) {
+        estilo_na_mesa = estilo;
+        inicio_da_troca_de_estilo = GetTime();
+    }
 
-            cartas_desenhar_frente(escolha, is_card_marked(&partida->cheats, escolha), area);
-            if (!vale)
-                DrawRectangleRec(area, (Color){ 8, 20, 14, 120 });
+    t = painel_suave(painel_progresso(inicio_da_troca_de_estilo, 0.6));
+    painel_desenhar(moldura, 0.95f);
+    texto_no_meio(partida_nome_do_adversario(partida->torneio.confronto), moldura, moldura.y + 12.0f, 16,
+                  PAINEL_TEXTO_SUAVE);
+    texto_no_meio(NOMES_DOS_ESTILOS[estilo], moldura, moldura.y + 40.0f + (1.0f - t) * 8.0f, 22,
+                  Fade(cor_do_estilo(estilo), 0.25f + 0.75f * t));
+}
 
-            snprintf(linha, sizeof linha, "[%d]%s", i + 1, vale ? "" : " (não vale)");
-            DrawText(linha, (int)(area.x + (area.width - (float)MeasureText(linha, 24)) / 2.0f),
-                     (int)(area.y + area.height + 12.0f), 24, vale ? COR_OURO : COR_TEXTO_SUAVE);
-            registrar_botao(clique, BOTAO_CARTA_DA_MAO + i);
-        }
+/** Média das chances de ser descoberto agora, nas cinco trapaças. */
+static int suspeita_media(const Partida *partida)
+{
+    int soma = 0;
 
-        if (aviso_das_trapacas != NULL)
-            desenhar_texto_centralizado(aviso_das_trapacas, 660, 22, COR_OURO);
+    for (int g = 0; g < GRUPOS_DE_TRAPACA; g++) {
+        int chance = partida_chance_de_descoberta(partida, PEDIDO_DO_GRUPO[g]);
 
+        soma += chance > 0 ? chance : 0;
+    }
+
+    return soma / GRUPOS_DE_TRAPACA;
+}
+
+/** Suspeita no canto de baixo da mesa: só o rótulo e a barra, como nos mockups. */
+static void desenhar_suspeita_na_mesa(const Partida *partida)
+{
+    DrawText("SUSPEITA", 32, 642, 16, PAINEL_OURO);
+    painel_barra((Rectangle){ 32.0f, 664.0f, 200.0f, 12.0f }, (float)suspeita_media(partida) / 100.0f, 5,
+                 PAINEL_VERMELHO_VIVO);
+}
+
+/** Recado curto no alto da mesa, que some sozinho. */
+static void desenhar_recado(void)
+{
+    float idade = (float)(GetTime() - inicio_do_recado);
+    float opacidade;
+    float largura;
+    Rectangle area;
+
+    if (idade < 0.0f || idade > 3.4f)
         return;
-    }
 
-    snprintf(linha, sizeof linha, "SUBORNO: QUE CARTA VOCÊ PEDE AO DEALER?  (ESC volta)");
-    DrawText(linha, 40, y, 22, COR_OURO);
-    botao_de_texto("[voltar]", LARGURA_TELA - 150, y, 22, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DAS_TRAPACAS);
-    y += 50;
+    opacidade = idade < 0.25f ? idade / 0.25f : (idade > 2.8f ? (3.4f - idade) / 0.6f : 1.0f);
+    largura = (float)MeasureText(texto_do_recado, 18) + 90.0f;
+    area = (Rectangle){ ((float)LARGURA_TELA - largura) / 2.0f, 192.0f, largura, 46.0f };
 
-    snprintf(linha, sizeof linha, "%s de %s", texto_do_valor(valor_do_seletor), texto_do_naipe(naipe_do_seletor));
-    DrawText(linha, 40, y, 44, carta_esta_a_vista((PokerCard){ valor_do_seletor, (PokerSuit)naipe_do_seletor })
-                               ? COR_TEXTO_SUAVE : COR_OURO);
-    y += 70;
-
-    botao_de_texto("[<] valor", 40, y, 22, COR_OURO, BOTAO_VALOR_MENOS);
-    botao_de_texto("[>] valor", 240, y, 22, COR_OURO, BOTAO_VALOR_MAIS);
-    botao_de_texto("[^] naipe", 460, y, 22, COR_OURO, BOTAO_NAIPE_ACIMA);
-    botao_de_texto("[v] naipe", 680, y, 22, COR_OURO, BOTAO_NAIPE_ABAIXO);
-    y += 50;
-
-    botao_de_texto("[ENTER] pedir esta carta", 40, y, 22, COR_OURO, BOTAO_CONFIRMAR_CARTA);
-    y += 40;
-    DrawText("Setas: esquerda e direita mudam o valor, para cima e para baixo o naipe.", 40, y, 20, COR_TEXTO_SUAVE);
-    y += 34;
-
-    if (aviso_das_trapacas != NULL)
-        DrawText(aviso_das_trapacas, 40, y, 22, COR_OURO);
+    painel_desenhar(area, opacidade);
+    painel_icone(icone_do_recado, (Rectangle){ area.x + 14.0f, area.y + 8.0f, 30.0f, 30.0f },
+                 Fade(PAINEL_OURO_VIVO, opacidade));
+    DrawText(texto_do_recado, (int)(area.x + 58.0f), (int)(area.y + 14.0f), 18, Fade(PAINEL_TEXTO, opacidade));
 }
 
 /** As imagens das cartas ocupam a mesa; o adversário mostra apenas os versos. */
@@ -1475,7 +2791,6 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     PokerCard ordenadas[MAO_CARTAS_ORDENADAS];
     size_t quantidade;
     int y = 24;
-    int extra = 0;
 
     registrar_disponibilidade(partida);
     comecar_desenho();
@@ -1495,7 +2810,10 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         botao_de_texto("MENU PRINCIPAL", 100, 590, 24, COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
         terminar_desenho();
         return;
-    }else if (partida->situacao == PARTIDA_JOGADOR_FALIDO && textura_derrota.id != 0) {
+    } else if ((partida->situacao == PARTIDA_JOGADOR_FALIDO ||
+                (partida->situacao == PARTIDA_JOGADOR_MORTO && aviso_aberto == AVISO_NENHUM)) &&
+               textura_derrota.id != 0) {
+        /* A morte na roleta também acaba aqui, depois do aviso do BANG. */
         DrawTexturePro(
             textura_derrota,
             (Rectangle){ 0, 0, (float)textura_derrota.width, (float)textura_derrota.height },
@@ -1528,8 +2846,8 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         return;
     }
 
+    /* Só a faixa do alto, atrás do texto de status; o pé da mesa fica aberto, com os botões por cima. */
     DrawRectangle(0, 0, LARGURA_TELA, 181, (Color){ 6, 9, 8, 218 });
-    DrawRectangle(0, 553, LARGURA_TELA, ALTURA_TELA - 553, (Color){ 6, 9, 8, 230 });
     DrawLine(0, 180, LARGURA_TELA, 180, COR_OURO);
     cartas_do_adversario_visiveis = adversario_recebeu_cartas && mao->situacao != MAO_VAZIA;
 
@@ -1595,68 +2913,63 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
 
     desenhar_cartas_da_mesa(partida);
     animacoes_desenhar();
-    y = 573;
+
+    /* Por baixo das telas das trapaças, dos avisos e da roleta já aparece outra figura grande. */
+    if (tela_de_trapacas == TRAPACAS_FECHADAS && aviso_aberto == AVISO_NENHUM &&
+        partida->situacao != PARTIDA_ROLETA)
+        desenhar_oponente_na_mesa(partida);
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
-            if (tela_de_trapacas != TRAPACAS_FECHADAS)
-                DrawText("Escolhendo uma trapaça...", 40, y, 22, COR_OURO);
-            else
-                desenhar_acoes_do_jogador(y, aposta_escolhida);
+            if (tela_de_trapacas == TRAPACAS_FECHADAS)
+                desenhar_acoes_do_jogador(partida, aposta_escolhida);
             break;
 
         case PARTIDA_VEZ_DO_ADVERSARIO:
-            DrawText("Vez do adversário...", 40, y, 22, COR_OURO);
+            DrawText("VEZ DO ADVERSÁRIO...",
+                     (int)(BOTOES_DA_MESA_DIREITA - (float)MeasureText("VEZ DO ADVERSÁRIO...", 22)),
+                     (int)BOTOES_DA_MESA_Y + 14, 22, PAINEL_OURO);
             break;
 
         case PARTIDA_MAO_ENCERRADA:
-            botao_de_texto("Mão encerrada. ENTER ou clique aqui para a próxima mão", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
+            botao_unico_da_mesa("PRÓXIMA MÃO", BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_CONFRONTO_VENCIDO:
-            botao_de_texto("Você venceu o confronto! ENTER ou clique aqui para o próximo adversário", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
-            break;
-
-        case PARTIDA_ROLETA:
-            snprintf(linha, sizeof linha, "ROLETA RUSSA: %d bala(s) no tambor de 6. ENTER ou clique aqui para puxar o gatilho",
-                     partida->risco.balas_roleta);
-            botao_de_texto(linha, 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
-            extra = 32;
-            snprintf(linha, sizeof linha, "Você faliu. Se sobreviver, volta ao confronto com %lld fichas.",
-                     (long long)(torneio_fichas_iniciais_adversario(partida->torneio.confronto) / 2));
-            DrawText(linha, 40, y + extra, 22, COR_TEXTO);
+            botao_unico_da_mesa("PRÓXIMO ADVERSÁRIO", BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_JOGADOR_MORTO:
-            botao_de_texto("Você morreu na roleta. ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
-            break;
-
         case PARTIDA_JOGADOR_FALIDO:
-            botao_de_texto("Você faliu e não pode mais voltar. ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
+            botao_unico_da_mesa("RECOMEÇAR", BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_CAMPEAO:
-            botao_de_texto("Você é o campeão! ENTER ou clique aqui para recomeçar", 40, y, 22, COR_OURO, BOTAO_CONTINUAR);
+            botao_unico_da_mesa("CAMPEÃO! JOGAR DE NOVO", BOTAO_CONTINUAR);
             break;
 
+        case PARTIDA_ROLETA:
         case PARTIDA_VAZIA:
-            DrawText("Sem partida", 40, y, 22, COR_OURO);
             break;
     }
 
-    int eventos_a_mostrar = extra > 0 ? 1 : 2;
-    int primeiro_evento = eventos_registrados > eventos_a_mostrar
-        ? eventos_registrados - eventos_a_mostrar : 0;
+    /* No canto de baixo à esquerda: o último acontecimento e a suspeita. */
+    if (eventos_registrados > 0)
+        DrawText(registro_de_eventos[eventos_registrados - 1], 32, 608, 16, COR_TEXTO_SUAVE);
 
-    for (int i = primeiro_evento; i < eventos_registrados; i++)
-        DrawText(registro_de_eventos[i], 40, 617 + extra + (i - primeiro_evento) * 26,
-                 17, COR_TEXTO_SUAVE);
+    if (partida->situacao != PARTIDA_ROLETA)
+        desenhar_suspeita_na_mesa(partida);
 
+    /* A volta ao menu, pequena, embaixo do status do oponente. */
     if (tela_de_trapacas == TRAPACAS_FECHADAS)
-        botao_de_texto("ESC ou clique aqui volta ao menu", 40, ALTURA_TELA - 34, 17,
-                       COR_TEXTO_SUAVE, BOTAO_VOLTAR_DA_MESA);
+        botao_da_mesa((Rectangle){ 1160.0f, 112.0f, 100.0f, 34.0f }, "MENU", false, true, BOTAO_VOLTAR_DA_MESA);
 
-    desenhar_painel_das_trapacas(partida);
+    if (partida->situacao == PARTIDA_ROLETA && aviso_aberto == AVISO_NENHUM)
+        desenhar_roleta(partida);
+
+    desenhar_trapacas(partida);
+    desenhar_recado();
     desenhar_carta_ampliada();
+    desenhar_aviso(partida);
     terminar_desenho();
 }
