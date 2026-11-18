@@ -99,7 +99,7 @@ O motor está em `src/poker/poker.c` (avaliação) e `src/poker/apostas.c` (apos
 - [x] Configurações com a escolha da resolução e salvar e continuar o jogo de onde parou.
 - [x] Mesa jogável de ponta a ponta no `make jogo`, com interface de teste em texto cru (o design da mesa é do Matheus).
 - [x] Roleta russa e trapaças no core, com custo, risco de descoberta e salvamento.
-- [x] Menu das trapaças e seletor de carta na mesa de teste.
+- [x] Telas das trapaças, da suspeita e da roleta no estilo noir, com o dealer mudando de cara conforme a suspeita e apontando o revólver na roleta.
 - [ ] Balanceamento das chances, dos custos e das balas.
 - [ ] Interface gráfica definitiva (mesa, cartas, fichas e animações).
 - [ ] Integração e testes.
