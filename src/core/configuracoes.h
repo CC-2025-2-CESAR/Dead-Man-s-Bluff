@@ -5,6 +5,14 @@
 
 #define RESOLUCOES_TOTAL 5
 
+/** Canais independentes de volume, em porcentagem de 0 a 100. */
+typedef enum {
+    VOLUME_GERAL = 0,
+    VOLUME_SFX,
+    VOLUME_MUSICA,
+    VOLUMES_TOTAL
+} CanalVolume;
+
 /**
  * Tamanho da janela do jogo.
  *
@@ -27,6 +35,9 @@ typedef struct {
  */
 typedef struct {
     int resolucao;
+    int volume_geral;
+    int volume_sfx;
+    int volume_musica;
 } Configuracoes;
 
 /**
@@ -36,6 +47,18 @@ typedef struct {
  * @param configuracoes configurações a preencher.
  */
 void configuracoes_iniciar(Configuracoes *configuracoes);
+
+/** Consulta um volume; ponteiro ou canal inválido devolve 0. */
+int configuracoes_volume(const Configuracoes *configuracoes, CanalVolume canal);
+
+/** Define um volume, limitado a 0..100; false para ponteiro ou canal inválido. */
+bool configuracoes_definir_volume(Configuracoes *configuracoes, CanalVolume canal, int valor);
+
+/** Carrega apenas os volumes; arquivo ausente/inválido não altera as configurações. */
+bool configuracoes_carregar_volumes(Configuracoes *configuracoes, const char *caminho);
+
+/** Grava os volumes em texto versionado, substituindo o arquivo após concluir a escrita. */
+bool configuracoes_salvar_volumes(const Configuracoes *configuracoes, const char *caminho);
 
 /**
  * Dá uma das resoluções disponíveis, da menor para a maior, com a tela cheia

@@ -1,4 +1,5 @@
 #include "ui/animacoes.h"
+#include "ui/audio.h"
 #include "raylib.h"
 
 #include <stddef.h>
@@ -80,11 +81,32 @@ static void mostrar_quadro(void)
     UpdateTexture(animacao->textura, (unsigned char *)animacao->imagem.data + deslocamento);
 }
 
+static void tocar_som_do_quadro(void)
+{
+    if (fase == ANIMACAO_EMBARALHAR &&
+        (quadro_atual == 3 || quadro_atual == 8 ||
+         quadro_atual == 13 || quadro_atual == 18))
+        audio_tocar(SOM_EMBARALHAR);
+
+    if (fase == ANIMACAO_DISTRIBUIR) {
+        if (quadro_atual == 2 || quadro_atual == 10 ||
+            quadro_atual == 18 || quadro_atual == 26)
+            audio_tocar(SOM_DISTRIBUIR);
+        if (quadro_atual == 8 || quadro_atual == 16 ||
+            quadro_atual == 24 || quadro_atual == 31)
+            audio_tocar(SOM_COLOCAR_CARTA);
+    }
+
+    if (fase == ANIMACAO_CARTA_MESA && quadro_atual == 1)
+        audio_tocar(SOM_DISTRIBUIR);
+}
+
 static void comecar(FaseAnimacao nova_fase)
 {
     fase = nova_fase;
     quadro_atual = 0;
     mostrar_quadro();
+    tocar_som_do_quadro();
 }
 
 static void comecar_proximo_lote(void)
@@ -229,7 +251,10 @@ void animacoes_atualizar(double segundos)
         return;
 
     if (fase == ANIMACAO_VIRAR_BOARD) {
+        double tempo_anterior = tempo_virada;
         tempo_virada += segundos;
+        if (tempo_anterior < 0.19 && tempo_virada >= 0.19)
+            audio_tocar(SOM_VIRAR_CARTA);
         if (tempo_virada >= 0.38) {
             board_frentes += board_versos;
             board_versos = 0;
@@ -266,6 +291,7 @@ void animacoes_atualizar(double segundos)
             }
 
             if (fase == ANIMACAO_CARTA_MESA) {
+                audio_tocar(SOM_COLOCAR_CARTA);
                 board_versos++;
                 entregues_no_lote++;
                 if (entregues_no_lote < lotes_board[lote_atual]) {
@@ -284,6 +310,7 @@ void animacoes_atualizar(double segundos)
         }
 
         mostrar_quadro();
+        tocar_som_do_quadro();
     }
 }
 

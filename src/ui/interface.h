@@ -41,12 +41,17 @@ typedef enum {
  * voltar: pediu para voltar ao menu, pelo teclado ou clicando em Voltar.
  * apontada: posição da opção sob o mouse, se ele se moveu ou clicou neste
  * quadro; -1 nos demais casos. Quem recebe passa a destacar essa opção.
+ * canal_volume: canal a alterar, ou -1; volume: valor absoluto, ou -1.
+ * ajuste_volume: variação pedida pelo teclado, em pontos percentuais.
  */
 typedef struct {
     int movimento;
     bool confirmar;
     bool voltar;
     int apontada;
+    int canal_volume;
+    int volume;
+    int ajuste_volume;
 } EntradaConfiguracoes;
 
 /**
@@ -55,7 +60,7 @@ typedef struct {
  *
  * comando: ação pedida na vez do jogador, ou COMANDO_NENHUM.
  * ajuste_aposta: -1 para diminuir e 1 para aumentar o valor da aposta, em
- * passos de um big blind; 0 se não mexeu.
+ * passos de uma ficha; 0 se não mexeu.
  * continuar: pediu para seguir depois do fim de uma mão ou da partida.
  * voltar: pediu para sair da mesa e voltar ao menu.
  * pedido: trapaça que o jogador pediu, completa (carta da mão ou carta
@@ -63,6 +68,8 @@ typedef struct {
  * pelo menu e pelos seletores de carta, e só devolve o pedido quando ele
  * confirma; quem decide se vale é o core (partida_trapacear). Enquanto o menu
  * das trapaças está aberto, os outros campos ficam sem pedido.
+ * ajuste_rapido: Shift estava pressionado durante o ajuste; o jogo usa um
+ * big blind no lugar de uma ficha.
  */
 typedef struct {
     ComandoJogador comando;
@@ -70,6 +77,7 @@ typedef struct {
     bool continuar;
     bool voltar;
     PedidoTrapaca pedido;
+    bool ajuste_rapido;
 } EntradaMesa;
 
 /**
@@ -126,17 +134,20 @@ void interface_confirmacao_desenhar(const char *pergunta, const char *detalhe);
 
 /**
  * Lê o teclado na tela de configurações: W/S ou as setas movem a seleção,
- * ENTER ou ESPAÇO confirmam e ESC volta ao menu.
+ * ENTER ou ESPAÇO confirmam e ESC volta ao menu. Nos volumes, esquerda/direita
+ * ou +/- ajustam em passos de 5; clique e arraste também alteram o valor.
  *
+ * @param selecionada opção destacada antes da leitura deste quadro.
  * @return os comandos do quadro.
  */
-EntradaConfiguracoes interface_configuracoes_ler_entrada(void);
+EntradaConfiguracoes interface_configuracoes_ler_entrada(int selecionada);
 
 /**
- * Desenha a tela de configurações, com a lista de resoluções.
+ * Desenha a tela de configurações, com resoluções e volumes de 0 a 100.
  *
  * @param configuracoes configurações em uso; a resolução atual aparece marcada.
- * @param selecionada posição destacada na lista de resoluções.
+ * @param selecionada resolução (0..RESOLUCOES_TOTAL-1) ou volume
+ * (RESOLUCOES_TOTAL + CanalVolume) destacado.
  */
 void interface_configuracoes_desenhar(const Configuracoes *configuracoes, int selecionada);
 
@@ -164,7 +175,8 @@ bool interface_aplicar_resolucao(Resolucao resolucao);
 /**
  * Lê o que o jogador fez na mesa neste quadro. Hoje: F desiste, C passa ou
  * paga, R aposta ou aumenta, A vai all-in, as setas para cima e para baixo
- * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre as
+ * ajustam a aposta de uma em uma ficha (segurar repete; Shift usa um big
+ * blind), ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre as
  * telas das trapaças (só na vez do jogador): 1 a 5, as setas e ENTER escolhem
  * entre as cinco; o suborno abre três serviços (1 a 3); marcar e a manga pedem
  * a carta da mão (1 ou 2), e o suborno de carta, uma das 52 numa grade (setas

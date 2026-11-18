@@ -1,5 +1,6 @@
 #include "core/partida.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -434,21 +435,32 @@ static void test_comandos_e_ajuste_de_aposta(void)
     CHECK(partida_ajustar_aposta(&partida, 0, 0) == 40);
     CHECK(partida_ajustar_aposta(&partida, 0, 5) == 40);
     CHECK(partida_ajustar_aposta(&partida, 40, 0) == 40);
-    CHECK(partida_ajustar_aposta(&partida, 40, 1) == 60);
-    CHECK(partida_ajustar_aposta(&partida, 100, 3) == 160);
-    CHECK(partida_ajustar_aposta(&partida, 100, -1) == 80);
-    CHECK(partida_ajustar_aposta(&partida, 100, -50) == 40);
+    CHECK(partida_ajustar_aposta(&partida, 40, 1) == 41);
+    CHECK(partida_ajustar_aposta(&partida, 100, 3) == 103);
+    CHECK(partida_ajustar_aposta(&partida, 100, -1) == 99);
+    CHECK(partida_ajustar_aposta(&partida, 100, -50) == 50);
+    CHECK(partida_ajustar_aposta(&partida, 100, -61) == 40);
     CHECK(partida_ajustar_aposta(&partida, 100, 5000) == 2000);
     CHECK(partida_ajustar_aposta(&partida, 3000, 0) == 2000);
+    CHECK(partida_ajustar_aposta(&partida, 40, INT_MIN) == 40);
+    CHECK(partida_ajustar_aposta(&partida, 40, INT_MAX) == 2000);
+    CHECK(partida_ajustar_aposta(&partida, INT64_MIN, INT_MIN) == 40);
+    CHECK(partida_ajustar_aposta(&partida, INT64_MIN, INT_MAX) == 40);
+    CHECK(partida_ajustar_aposta(&partida, INT64_MAX, 1) == 2000);
+    CHECK(partida_ajustar_aposta(&partida, INT64_MAX, INT_MAX) == 2000);
+    CHECK(partida_ajustar_aposta(&partida, INT64_MAX - 10, INT_MAX) == 2000);
+    CHECK(partida_ajustar_aposta(&partida, INT64_MAX, INT_MIN) == 2000);
 
     CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 25) == POKER_ERR_ACTION);
     CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 2001) == POKER_ERR_ACTION);
     CHECK(partida.situacao == PARTIDA_VEZ_DO_JOGADOR);
     CHECK(partida.mao.mesa.player[0].chips == 1990);
 
-    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 60) == POKER_OK);
-    CHECK(partida.mao.mesa.player[0].street_bet == 60);
-    CHECK(partida.mao.mesa.player[0].chips == 1940);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 41) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].street_bet == 41);
+    CHECK(partida.mao.mesa.player[0].chips == 1959);
+    CHECK(partida.mao.mesa.player[0].chips + partida.mao.mesa.player[1].chips +
+          poker_pot(&partida.mao.mesa) == partida.mao.mesa.initial_total);
     CHECK(partida.situacao == PARTIDA_VEZ_DO_ADVERSARIO);
 
     CHECK(partida_ajustar_aposta(&partida, 60, 1) == 0);
@@ -493,11 +505,56 @@ static void test_passar_pagar_e_apostar_sem_aposta_anterior(void)
     }
 
     CHECK(viu_check);
+    CHECK(poker_pot(&partida.mao.mesa) == 40);
     CHECK(partida_ajustar_aposta(&partida, 0, 0) == 20);
-    CHECK(partida_ajustar_aposta(&partida, 20, 2) == 60);
+    CHECK(partida_ajustar_aposta(&partida, 20, 2) == 22);
+    CHECK(partida_ajustar_aposta(&partida, 20, 5) == 25);
+    CHECK(partida_ajustar_aposta(&partida, 25, -5) == 20);
     CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 19) == POKER_ERR_ACTION);
-    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 40) == POKER_OK);
-    CHECK(partida.mao.mesa.player[0].street_bet == 40);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 20) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].street_bet == 20);
+    CHECK(poker_pot(&partida.mao.mesa) == 60);
+    CHECK(partida.mao.mesa.player[0].chips + partida.mao.mesa.player[1].chips +
+          poker_pot(&partida.mao.mesa) == partida.mao.mesa.initial_total);
+    partida_encerrar(&partida);
+}
+
+static void test_aposta_intermediaria_menor_que_o_pote(void)
+{
+    Partida partida = {0};
+    PokerChips stacks[2] = {2000, 2000};
+    PokerLegalActions legais;
+    PokerChips escolhida;
+
+    CHECK(partida_iniciar(&partida, 14));
+    CHECK(poker_start_hand(&partida.mao.mesa, stacks, TORNEIO_ASSENTO_ADVERSARIO, 10, 20) == POKER_OK);
+    CHECK(poker_act(&partida.mao.mesa, TORNEIO_ASSENTO_ADVERSARIO, PAGAR) == POKER_OK);
+    partida.situacao = PARTIDA_VEZ_DO_JOGADOR;
+    CHECK(partida_comando_jogador(&partida, COMANDO_PASSAR_OU_PAGAR, 0) == POKER_OK);
+    CHECK(poker_pot(&partida.mao.mesa) == 40);
+
+    escolhida = partida_ajustar_aposta(&partida, 20, 5);
+    CHECK(escolhida == 25 && escolhida < poker_pot(&partida.mao.mesa));
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, escolhida) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].street_bet == 25);
+    CHECK(partida.mao.mesa.player[0].chips == 1955);
+    CHECK(poker_pot(&partida.mao.mesa) == 65);
+    CHECK(poker_act(&partida.mao.mesa, TORNEIO_ASSENTO_ADVERSARIO,
+                    (PokerAction){ POKER_RAISE, 50 }) == POKER_OK);
+    partida.situacao = PARTIDA_VEZ_DO_JOGADOR;
+
+    CHECK(partida_acoes_legais(&partida, &legais) == POKER_OK);
+    CHECK(legais.to_call == 25 && legais.min_total == 75);
+    CHECK(partida_ajustar_aposta(&partida, 0, 0) == 75);
+    CHECK(partida_ajustar_aposta(&partida, 75, 1) == 76);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 74) == POKER_ERR_ACTION);
+    CHECK(partida.mao.mesa.player[0].chips == 1955);
+    CHECK(partida_comando_jogador(&partida, COMANDO_APOSTAR, 76) == POKER_OK);
+    CHECK(partida.mao.mesa.player[0].street_bet == 76);
+    CHECK(partida.mao.mesa.player[0].chips == 1904);
+    CHECK(partida.mao.mesa.min_raise == 26);
+    CHECK(partida.mao.mesa.player[0].chips + partida.mao.mesa.player[1].chips +
+          poker_pot(&partida.mao.mesa) == partida.mao.mesa.initial_total);
     partida_encerrar(&partida);
 }
 
@@ -1319,6 +1376,7 @@ int main(void)
     test_stack_curto_resolve_a_mao_ao_iniciar();
     test_comandos_e_ajuste_de_aposta();
     test_passar_pagar_e_apostar_sem_aposta_anterior();
+    test_aposta_intermediaria_menor_que_o_pote();
     test_adversario_all_in_impede_aumentar();
     test_partidas_inteiras();
     test_mesma_semente_reproduz_a_partida();

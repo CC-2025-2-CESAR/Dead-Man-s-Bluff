@@ -4,7 +4,9 @@
 #include "core/salvamento.h"
 #include "ui/interface.h"
 #include "ui/animacoes.h"
+#include "ui/audio.h"
 
+#include <limits.h>
 #include <stdbool.h>
 #include <time.h>
 
@@ -40,6 +42,7 @@ static int selecao_da_resolucao;
 static OpcaoMenu opcao_do_menu;
 static bool ha_jogo_salvo;
 static const char *aviso_do_menu;
+static bool restaurando_eventos;
 
 /**
  * Confere se há um jogo salvo e põe a seleção do menu em Continuar, se houver,
@@ -85,8 +88,10 @@ static bool continuar_partida(Mesa *mesa)
     mesa->aposta = 0;
     mesa->ativa = salvamento_ler(SALVAMENTO_ARQUIVO, &salva) &&
                   partida_restaurar(&mesa->partida, &salva);
-    if (mesa->ativa)
+    if (mesa->ativa) {
         animacoes_ignorar_proximo_inicio();
+        restaurando_eventos = true;
+    }
     return mesa->ativa;
 }
 
@@ -155,17 +160,34 @@ static EstadoJogo executar_quadro_confirmar_novo_jogo(void)
  */
 static EstadoJogo executar_quadro_configuracoes(void)
 {
-    EntradaConfiguracoes entrada = interface_configuracoes_ler_entrada();
+    EntradaConfiguracoes entrada = interface_configuracoes_ler_entrada(selecao_da_resolucao);
 
-    if (entrada.voltar)
+    if (entrada.voltar) {
+        configuracoes_salvar_volumes(&configuracoes, "audio.cfg");
         return ESTADO_MENU;
+    }
 
     if (entrada.apontada >= 0)
         selecao_da_resolucao = entrada.apontada;
 
-    selecao_da_resolucao = configuracoes_mover_selecao(selecao_da_resolucao, entrada.movimento);
+    selecao_da_resolucao = (selecao_da_resolucao + entrada.movimento +
+                           RESOLUCOES_TOTAL + VOLUMES_TOTAL) % (RESOLUCOES_TOTAL + VOLUMES_TOTAL);
 
-    if (entrada.confirmar &&
+    if (entrada.canal_volume >= 0 && entrada.canal_volume < VOLUMES_TOTAL) {
+        CanalVolume canal = (CanalVolume)entrada.canal_volume;
+        int volume = entrada.volume >= 0 ? entrada.volume
+                   : configuracoes_volume(&configuracoes, canal) + entrada.ajuste_volume;
+        int anterior = configuracoes_volume(&configuracoes, canal);
+
+        configuracoes_definir_volume(&configuracoes, canal, volume);
+        if (configuracoes_volume(&configuracoes, canal) != anterior) {
+            audio_atualizar(0.0, &configuracoes);
+            if (canal == VOLUME_SFX)
+                audio_tocar(SOM_COLOCAR_CARTA);
+        }
+    }
+
+    if (entrada.confirmar && selecao_da_resolucao < RESOLUCOES_TOTAL &&
         interface_aplicar_resolucao(configuracoes_resolucao(selecao_da_resolucao)))
         configuracoes_escolher_resolucao(&configuracoes, selecao_da_resolucao);
 
@@ -196,6 +218,7 @@ static bool iniciar_partida(Mesa *mesa)
 /** Encerra a partida em andamento, se houver, e libera o que ela guarda. */
 static void encerrar_partida(Mesa *mesa)
 {
+    audio_parar_efeitos();
     partida_encerrar(&mesa->partida);
     mesa->ativa = false;
 }
@@ -205,8 +228,28 @@ static void repassar_eventos(Partida *partida)
 {
     EventoJogo evento;
 
-    while (fila_eventos_retirar(&partida->eventos, &evento))
+    audio_suspender_efeitos(restaurando_eventos);
+    while (fila_eventos_retirar(&partida->eventos, &evento)) {
         interface_mesa_registrar_evento(&evento);
+
+        if (restaurando_eventos)
+            continue;
+
+        if (evento.tipo == EVENTO_TRAPACA) {
+            if (evento.trapaca.resultado == TRAPACA_DESCOBERTA)
+                audio_tocar(SOM_TENSAO);
+            else if (evento.trapaca.resultado == TRAPACA_SUCESSO &&
+                     (evento.trapaca.pedido == PEDIDO_SUBORNO_VER ||
+                      evento.trapaca.pedido == PEDIDO_MANGA))
+                audio_tocar(SOM_VIRAR_CARTA);
+        } else if (evento.tipo == EVENTO_ROLETA) {
+            audio_parar_efeitos();
+            audio_tocar(SOM_GIRAR_TAMBOR);
+            audio_agendar(evento.roleta.morreu ? SOM_DISPARO : SOM_ENGATILHAR, 1.05);
+        }
+    }
+    audio_suspender_efeitos(false);
+    restaurando_eventos = false;
 }
 
 /**
@@ -222,6 +265,13 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
 {
     Partida *partida = &mesa->partida;
     bool avancou = false;
+    int ajuste_aposta = entrada->ajuste_aposta;
+
+    if (entrada->ajuste_rapido && ajuste_aposta != 0) {
+        PokerChips blind = partida->mao.mesa.big_blind;
+        int passo = blind > INT_MAX ? INT_MAX : (int)blind;
+        ajuste_aposta = ajuste_aposta < 0 ? -passo : passo;
+    }
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
@@ -233,7 +283,7 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
             if (partida->situacao != PARTIDA_VEZ_DO_JOGADOR)
                 break;
 
-            mesa->aposta = partida_ajustar_aposta(partida, mesa->aposta, entrada->ajuste_aposta);
+            mesa->aposta = partida_ajustar_aposta(partida, mesa->aposta, ajuste_aposta);
 
             if (entrada->comando != COMANDO_NENHUM &&
                 partida_comando_jogador(partida, entrada->comando, mesa->aposta) == POKER_OK) {
@@ -331,8 +381,10 @@ void jogo_executar(void)
     EstadoJogo estado = ESTADO_MENU;
 
     configuracoes_iniciar(&configuracoes);
+    configuracoes_carregar_volumes(&configuracoes, "audio.cfg");
     atualizar_menu();
     interface_iniciar();
+    audio_iniciar(&configuracoes);
 
     while (estado != ESTADO_SAIR && !interface_fechar_solicitado()) {
         switch (estado) {
@@ -355,6 +407,7 @@ void jogo_executar(void)
             case ESTADO_SAIR:
                 break;
         }
+        audio_atualizar(interface_tempo_do_quadro(), &configuracoes);
     }
 
     if (mesa.ativa) {
@@ -362,5 +415,7 @@ void jogo_executar(void)
         encerrar_partida(&mesa);
     }
 
+    configuracoes_salvar_volumes(&configuracoes, "audio.cfg");
+    audio_encerrar();
     interface_encerrar();
 }

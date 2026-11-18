@@ -492,7 +492,15 @@ PokerChips partida_ajustar_aposta(const Partida *partida, PokerChips atual, int 
         return legais.min_total;
     }
 
-    total = atual + (PokerChips)passos * partida->mao.mesa.big_blind;
+    if (passos > 0 && atual > INT64_MAX - (PokerChips)passos) {
+        return legais.max_total;
+    }
+
+    if (passos < 0 && atual < INT64_MIN - (PokerChips)passos) {
+        return legais.min_total;
+    }
+
+    total = atual + (PokerChips)passos;
 
     if (total < legais.min_total) {
         return legais.min_total;

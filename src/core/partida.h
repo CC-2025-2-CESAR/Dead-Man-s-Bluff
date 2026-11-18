@@ -280,13 +280,13 @@ PokerStatus partida_agir_jogador(Partida *partida, PokerAction acao);
 PokerStatus partida_comando_jogador(Partida *partida, ComandoJogador comando, PokerChips total);
 
 /**
- * Move o total de uma aposta ou aumento em passos de um big blind, sempre
+ * Move o total de uma aposta ou aumento em passos de uma ficha, sempre
  * dentro dos limites legais. Um total que ainda não é válido (como zero)
  * vira o menor total permitido.
  *
  * @param partida partida em PARTIDA_VEZ_DO_JOGADOR.
  * @param atual total escolhido até agora.
- * @param passos quantos big blinds somar; negativo para diminuir.
+ * @param passos quantas fichas somar; negativo para diminuir.
  * @return o novo total, entre o mínimo e o máximo permitidos; 0 se o
  * jogador não pode apostar agora (não é a vez dele ou o adversário já está
  * all-in).

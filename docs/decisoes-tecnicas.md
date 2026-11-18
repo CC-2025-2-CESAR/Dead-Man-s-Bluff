@@ -133,7 +133,7 @@ Quem chama o quê, em ordem:
 - **Resolução:** as telas desenham sempre em `LARGURA_TELA` por `ALTURA_TELA` (1280x720), e a interface escala o desenho para a janela real, com faixas nas bordas se a proporção for outra. Telas novas usam essas coordenadas e não precisam saber o tamanho da janela. A lista de resoluções (960x540, 1280x720, 1600x900, 1920x1080 e tela cheia) e a escolha do jogador ficam em `src/core/configuracoes.*`. Uma janela só é oferecida se couber no monitor com a barra de título.
 
 - A interface não decide regra: ela não chama funções de `poker`, `mao` ou `partida` que mudem o estado. Quem faz isso é o `jogo.c`.
-- O que cada comando significa e qual aposta é válida é do core: `partida_comando_jogador` traduz o comando e `partida_ajustar_aposta` mantém o valor dentro dos limites, em passos de um big blind.
+- O que cada comando significa e qual aposta é válida é do core: `partida_comando_jogador` traduz o comando e `partida_ajustar_aposta` mantém o valor dentro dos limites legais, em passos de uma ficha. Segurar uma seta repete o ajuste; com Shift, o `jogo.c` converte o passo para um big blind. O valor selecionado é o total colocado na rua, incluindo o que o jogador já colocou. O pote não define o mínimo: uma abertura começa no big blind e um aumento respeita o último aumento completo.
 - O adversário espera 0,8 s (`PAUSA_DO_ADVERSARIO`, em `jogo.c`) antes de agir. Se uma animação precisar de mais tempo, combine com o Arthur em vez de travar o quadro.
 
 ### 3.5 Salvar e continuar
