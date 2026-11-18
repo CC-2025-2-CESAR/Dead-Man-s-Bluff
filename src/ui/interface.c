@@ -640,6 +640,8 @@ static bool marcou_carta_do_adversario[2];
 static bool adversario_recebeu_cartas;
 static int carta_marcada_ampliada = -1;
 static bool cartas_do_adversario_visiveis;
+static double inicio_da_revelacao = -1.0;
+static bool revelacao_em_andamento;
 
 static const Rectangle AREAS_DO_ADVERSARIO[2] = {
     { 766.0f, 412.0f, 94.0f, 132.0f },
@@ -1021,6 +1023,11 @@ EntradaMesa interface_mesa_ler_entrada(void)
         return entrada;
     }
 
+    if (revelacao_em_andamento) {
+        entrada.voltar = IsKeyPressed(KEY_ESCAPE) || botao_clicado() == BOTAO_VOLTAR_DA_MESA;
+        return entrada;
+    }
+
     if (cartas_do_adversario_visiveis && tela_de_trapacas == TRAPACAS_FECHADAS &&
         IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         for (int i = 0; i < 2; i++) {
@@ -1181,6 +1188,8 @@ static const char *nome_da_acao(PokerActionType acao)
 void interface_mesa_limpar_eventos(void)
 {
     eventos_registrados = 0;
+    inicio_da_revelacao = -1.0;
+    revelacao_em_andamento = false;
     adversario_recebeu_cartas = false;
     marcou_carta_do_adversario[0] = false;
     marcou_carta_do_adversario[1] = false;
@@ -1379,6 +1388,8 @@ void interface_mesa_registrar_evento(const EventoJogo *evento)
 
     switch (evento->tipo) {
         case EVENTO_MAO_INICIADA:
+            inicio_da_revelacao = -1.0;
+            revelacao_em_andamento = false;
             adversario_recebeu_cartas = false;
             marcou_carta_do_adversario[0] = false;
             marcou_carta_do_adversario[1] = false;
@@ -2712,10 +2723,18 @@ static void desenhar_recado(void)
     DrawText(texto_do_recado, (int)(area.x + 58.0f), (int)(area.y + 14.0f), 18, Fade(PAINEL_TEXTO, opacidade));
 }
 
-/** As imagens das cartas ocupam a mesa; o adversário mostra apenas os versos. */
+/** Revela a mão do adversário somente após um showdown e as animações da mesa. */
+static bool adversario_mostra_as_cartas(const Mao *mao)
+{
+    bool terminou = mao->situacao == MAO_ENCERRADA || mao->situacao == MAO_REGISTRADA;
+    return terminou && mao->resultado.showdown && !animacoes_ativas();
+}
+
+/** As imagens das cartas ocupam a mesa; o adversário revela as suas no showdown. */
 static void desenhar_cartas_da_mesa(const Partida *partida)
 {
     const Mao *mao = &partida->mao;
+    bool revelar_adversario = adversario_mostra_as_cartas(mao);
     int frentes = animacoes_board_frentes();
     int versos = animacoes_board_versos();
     float virada = animacoes_board_virada();
@@ -2748,7 +2767,10 @@ static void desenhar_cartas_da_mesa(const Partida *partida)
 
         cartas_desenhar_frente(carta, is_card_marked(&partida->cheats, carta), area);
 
-        if (adversario_recebeu_cartas) {
+        if (revelar_adversario) {
+            cartas_desenhar_frente(mao->cartas[TORNEIO_ASSENTO_ADVERSARIO][i],
+                                   marcou_carta_do_adversario[i], AREAS_DO_ADVERSARIO[i]);
+        } else if (adversario_recebeu_cartas) {
             cartas_desenhar_verso(marcou_carta_do_adversario[i], AREAS_DO_ADVERSARIO[i]);
 
             if (marcou_carta_do_adversario[i] && tela_de_trapacas == TRAPACAS_FECHADAS &&
@@ -2778,12 +2800,21 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     const Mao *mao = &partida->mao;
     const PokerTable *mesa = &mao->mesa;
     bool terminou = mao->situacao == MAO_ENCERRADA || mao->situacao == MAO_REGISTRADA;
+    bool resultado_cobre_mesa = partida->situacao == PARTIDA_CONFRONTO_VENCIDO ||
+                               partida->situacao == PARTIDA_JOGADOR_FALIDO ||
+                               partida->situacao == PARTIDA_ROLETA;
+    bool showdown_antes_do_resultado = terminou && mao->resultado.showdown && resultado_cobre_mesa;
+
+    if (showdown_antes_do_resultado && !animacoes_ativas() && inicio_da_revelacao < 0.0)
+        inicio_da_revelacao = GetTime();
+    revelacao_em_andamento = showdown_antes_do_resultado &&
+                             (animacoes_ativas() || GetTime() - inicio_da_revelacao < 1.5);
 
     registrar_disponibilidade(partida);
     comecar_desenho();
     cartas_do_adversario_visiveis = false;
 
-    if (partida->situacao == PARTIDA_CONFRONTO_VENCIDO && textura_vitoria.id != 0) {
+    if (partida->situacao == PARTIDA_CONFRONTO_VENCIDO && !revelacao_em_andamento && textura_vitoria.id != 0) {
         DrawTexturePro(
             textura_vitoria,
             (Rectangle){ 0, 0, (float)textura_vitoria.width, (float)textura_vitoria.height },
@@ -2799,7 +2830,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         return;
     } else if ((partida->situacao == PARTIDA_JOGADOR_FALIDO ||
                 (partida->situacao == PARTIDA_JOGADOR_MORTO && aviso_aberto == AVISO_NENHUM)) &&
-               textura_derrota.id != 0) {
+               !revelacao_em_andamento && textura_derrota.id != 0) {
         /* A morte na roleta também acaba aqui, depois do aviso do BANG. */
         DrawTexturePro(
             textura_derrota,
@@ -2835,7 +2866,8 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
         return;
     }
 
-    cartas_do_adversario_visiveis = adversario_recebeu_cartas && mao->situacao != MAO_VAZIA;
+    cartas_do_adversario_visiveis = adversario_recebeu_cartas && mao->situacao != MAO_VAZIA &&
+                                    !adversario_mostra_as_cartas(mao);
     desenhar_contador((Rectangle){ 554.0f, 184.0f, 172.0f, 60.0f }, "POTE", poker_pot(mesa));
     desenhar_contador((Rectangle){ 30.0f, 526.0f, 200.0f, 62.0f }, "FICHAS",
                       terminou ? partida->torneio.fichas_jogador : mesa->player[TORNEIO_ASSENTO_JOGADOR].chips);
@@ -2862,12 +2894,14 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
             break;
 
         case PARTIDA_CONFRONTO_VENCIDO:
-            botao_unico_da_mesa("PRÓXIMO ADVERSÁRIO", BOTAO_CONTINUAR);
+            if (!revelacao_em_andamento)
+                botao_unico_da_mesa("PRÓXIMO ADVERSÁRIO", BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_JOGADOR_MORTO:
         case PARTIDA_JOGADOR_FALIDO:
-            botao_unico_da_mesa("RECOMEÇAR", BOTAO_CONTINUAR);
+            if (!revelacao_em_andamento)
+                botao_unico_da_mesa("RECOMEÇAR", BOTAO_CONTINUAR);
             break;
 
         case PARTIDA_CAMPEAO:
@@ -2890,7 +2924,7 @@ void interface_mesa_desenhar(const Partida *partida, PokerChips aposta_escolhida
     if (tela_de_trapacas == TRAPACAS_FECHADAS)
         botao_da_mesa((Rectangle){ 1160.0f, 20.0f, 100.0f, 34.0f }, "MENU", false, true, BOTAO_VOLTAR_DA_MESA);
 
-    if (partida->situacao == PARTIDA_ROLETA && aviso_aberto == AVISO_NENHUM)
+    if (partida->situacao == PARTIDA_ROLETA && aviso_aberto == AVISO_NENHUM && !revelacao_em_andamento)
         desenhar_roleta(partida);
 
     desenhar_trapacas(partida);
