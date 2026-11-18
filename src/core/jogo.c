@@ -6,6 +6,7 @@
 #include "ui/animacoes.h"
 #include "ui/audio.h"
 
+#include <limits.h>
 #include <stdbool.h>
 #include <time.h>
 
@@ -264,6 +265,13 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
 {
     Partida *partida = &mesa->partida;
     bool avancou = false;
+    int ajuste_aposta = entrada->ajuste_aposta;
+
+    if (entrada->ajuste_rapido && ajuste_aposta != 0) {
+        PokerChips blind = partida->mao.mesa.big_blind;
+        int passo = blind > INT_MAX ? INT_MAX : (int)blind;
+        ajuste_aposta = ajuste_aposta < 0 ? -passo : passo;
+    }
 
     switch (partida->situacao) {
         case PARTIDA_VEZ_DO_JOGADOR:
@@ -275,7 +283,7 @@ static bool atualizar_partida(Mesa *mesa, const EntradaMesa *entrada, double tem
             if (partida->situacao != PARTIDA_VEZ_DO_JOGADOR)
                 break;
 
-            mesa->aposta = partida_ajustar_aposta(partida, mesa->aposta, entrada->ajuste_aposta);
+            mesa->aposta = partida_ajustar_aposta(partida, mesa->aposta, ajuste_aposta);
 
             if (entrada->comando != COMANDO_NENHUM &&
                 partida_comando_jogador(partida, entrada->comando, mesa->aposta) == POKER_OK) {

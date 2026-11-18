@@ -60,7 +60,7 @@ typedef struct {
  *
  * comando: ação pedida na vez do jogador, ou COMANDO_NENHUM.
  * ajuste_aposta: -1 para diminuir e 1 para aumentar o valor da aposta, em
- * passos de um big blind; 0 se não mexeu.
+ * passos de uma ficha; 0 se não mexeu.
  * continuar: pediu para seguir depois do fim de uma mão ou da partida.
  * voltar: pediu para sair da mesa e voltar ao menu.
  * pedido: trapaça que o jogador pediu, completa (carta da mão ou carta
@@ -68,6 +68,8 @@ typedef struct {
  * pelo menu e pelos seletores de carta, e só devolve o pedido quando ele
  * confirma; quem decide se vale é o core (partida_trapacear). Enquanto o menu
  * das trapaças está aberto, os outros campos ficam sem pedido.
+ * ajuste_rapido: Shift estava pressionado durante o ajuste; o jogo usa um
+ * big blind no lugar de uma ficha.
  */
 typedef struct {
     ComandoJogador comando;
@@ -75,6 +77,7 @@ typedef struct {
     bool continuar;
     bool voltar;
     PedidoTrapaca pedido;
+    bool ajuste_rapido;
 } EntradaMesa;
 
 /**
@@ -172,7 +175,8 @@ bool interface_aplicar_resolucao(Resolucao resolucao);
 /**
  * Lê o que o jogador fez na mesa neste quadro. Hoje: F desiste, C passa ou
  * paga, R aposta ou aumenta, A vai all-in, as setas para cima e para baixo
- * ajustam a aposta, ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre as
+ * ajustam a aposta de uma em uma ficha (segurar repete; Shift usa um big
+ * blind), ENTER ou ESPAÇO continuam e ESC volta ao menu. T abre as
  * telas das trapaças (só na vez do jogador): 1 a 5, as setas e ENTER escolhem
  * entre as cinco; o suborno abre três serviços (1 a 3); marcar e a manga pedem
  * a carta da mão (1 ou 2), e o suborno de carta, uma das 52 numa grade (setas

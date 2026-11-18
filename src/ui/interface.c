@@ -1083,7 +1083,7 @@ static void ler_entrada_das_trapacas(EntradaMesa *entrada)
 
 EntradaMesa interface_mesa_ler_entrada(void)
 {
-    EntradaMesa entrada = { COMANDO_NENHUM, 0, false, false, { PEDIDO_NENHUM, 0, { 0, POKER_CLUBS } } };
+    EntradaMesa entrada = { COMANDO_NENHUM, 0, false, false, { PEDIDO_NENHUM, 0, { 0, POKER_CLUBS } }, false };
 
     if (carta_marcada_ampliada >= 0) {
         if (IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -1141,9 +1141,9 @@ EntradaMesa interface_mesa_ler_entrada(void)
         entrada.comando = COMANDO_ALL_IN;
     }
 
-    if (IsKeyPressed(KEY_UP)) {
+    if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP)) {
         entrada.ajuste_aposta = 1;
-    } else if (IsKeyPressed(KEY_DOWN)) {
+    } else if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN)) {
         entrada.ajuste_aposta = -1;
     }
 
@@ -1191,6 +1191,8 @@ EntradaMesa interface_mesa_ler_entrada(void)
             break;
     }
 
+    entrada.ajuste_rapido = entrada.ajuste_aposta != 0 &&
+                            (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
     return entrada;
 }
 
